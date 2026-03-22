@@ -1,0 +1,20 @@
+# {{ report.title }}
+
+## Summary
+{{ report.summary }}
+
+## Reproduction Steps
+{% for step in report.reproduction_steps %}
+- {{ step }}
+{% endfor %}
+
+## Observed Result
+{{ report.observed_result }}
+
+## Expected Result
+{{ report.expected_result }}
+
+## Related Test Points
+{% for point in test_points %}
+- {{ point.id }}: {{ point.title }}
+{% endfor %}
