@@ -59,10 +59,16 @@ playwright-testops-agent/
 ## How to Run
 
 1. Create and activate a virtual environment
-2. Install dependencies:
+2. Install dependencies for the current parser milestone:
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-core.txt
+```
+
+Playwright-related installation is only needed later for generation/execution stages:
+
+```bash
+pip install -r requirements-e2e.txt
 ```
 
 3. Check the CLI:

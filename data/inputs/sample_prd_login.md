@@ -1,13 +1,22 @@
-# Login Page PRD
+# Title
+Login Page PRD
 
-Build a simple login page with:
-- email input
-- password input
-- login button
-- inline validation for empty fields
-- error message for invalid credentials
+## Feature Name
+User Login
 
-Primary user flow:
-1. User enters email and password
-2. User clicks login
-3. User lands on the dashboard after successful authentication
+## Page URL
+/login
+
+## Preconditions
+- User account already exists
+- User can access the login page
+
+## User Actions
+1. Enter a valid email address
+2. Enter the correct password
+3. Click the login button
+
+## Expected Results
+- Login request is submitted successfully
+- User is redirected to the dashboard
+- No blocking validation error is shown for valid credentials

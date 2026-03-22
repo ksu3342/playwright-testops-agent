@@ -1,4 +1,6 @@
 import argparse
+import json
+from dataclasses import asdict
 
 from app.core.collector import collect_run_artifacts
 from app.core.extractor import extract_test_points
@@ -13,7 +15,12 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     parse_cmd = subparsers.add_parser("parse", help="Parse a simple PRD or page description file.")
-    parse_cmd.add_argument("--input", required=True, help="Path to the input PRD markdown/text file.")
+    parse_cmd.add_argument("input_path", nargs="?", help="Shorthand input path for the PRD markdown/text file.")
+    parse_cmd.add_argument(
+        "--input",
+        dest="input_flag",
+        help="Path to the input PRD markdown/text file. Overrides the positional input when both are provided.",
+    )
 
     generate_cmd = subparsers.add_parser("generate", help="Generate a placeholder Playwright script.")
     generate_cmd.add_argument("--input", required=True, help="Path to the input PRD markdown/text file.")
@@ -33,8 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def cmd_parse(input_path: str) -> int:
     document = parse_prd(input_path)
-    print(f"title: {document.title}")
-    print(f"summary: {document.summary}")
+    print(json.dumps(asdict(document), indent=2))
     return 0
 
 
@@ -74,7 +80,10 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "parse":
-        return cmd_parse(args.input)
+        input_path = args.input_flag or args.input_path
+        if not input_path:
+            raise SystemExit("parse requires an input path. Use 'parse <path>' or 'parse --input <path>'.")
+        return cmd_parse(input_path)
     if args.command == "generate":
         return cmd_generate(args.input)
     if args.command == "run":
