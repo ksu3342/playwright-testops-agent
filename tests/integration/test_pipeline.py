@@ -5,6 +5,7 @@ from pathlib import Path
 from app.core.extractor import extract_test_points
 from app.core.generator import generate_test_script
 from app.core.parser import parse_prd
+from app.core.runner import run_test_script
 
 
 def test_pipeline_parse_flow_returns_structured_document() -> None:
@@ -99,3 +100,47 @@ def test_cli_run_command_reports_blocked_status_for_generated_scaffold() -> None
     )
     assert "Run status: blocked" in result.stdout
     assert "Reason:" in result.stdout
+
+
+def test_cli_report_command_generates_report_for_failed_run() -> None:
+    run_result = run_test_script("tests/assets/runner_fail_case.py")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "app.main", "report", run_result["artifact_paths"]["run_dir"]],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "Run status: failed" in result.stdout
+    assert "Report generated: yes" in result.stdout
+    assert f"generated/reports/bug_report_{run_result['run_id']}.md" in result.stdout
+
+
+def test_cli_report_command_skips_blocked_run() -> None:
+    document = parse_prd("data/inputs/sample_prd_login.md")
+    test_points = extract_test_points(document)
+    script_path = generate_test_script(document, test_points)
+    run_result = run_test_script(str(script_path))
+
+    result = subprocess.run(
+        [sys.executable, "-m", "app.main", "report", run_result["artifact_paths"]["run_dir"]],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "Run status: blocked" in result.stdout
+    assert "Report generated: no" in result.stdout
+    assert "execution was not actually ready" in result.stdout.lower()
+
+
+def test_cli_report_command_skips_passed_run() -> None:
+    run_result = run_test_script("tests/assets/runner_pass_case.py")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "app.main", "report", run_result["artifact_paths"]["run_dir"]],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "Run status: passed" in result.stdout
+    assert "Report generated: no" in result.stdout

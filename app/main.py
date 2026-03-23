@@ -6,7 +6,7 @@ from typing import Optional
 from app.core.extractor import extract_test_points
 from app.core.generator import generate_test_script
 from app.core.parser import parse_prd
-from app.core.reporter import build_bug_report, write_bug_report
+from app.core.reporter import create_bug_report_from_run
 from app.core.runner import run_test_script
 
 
@@ -38,12 +38,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the target test script. Overrides the positional input when both are provided.",
     )
 
-    report_cmd = subparsers.add_parser("report", help="Generate a placeholder bug report from the latest run.")
-    report_cmd.add_argument("--run-id", default="latest", help="Run id to report on. Only 'latest' is supported now.")
+    report_cmd = subparsers.add_parser("report", help="Generate a bug report draft from a Phase 5 run directory.")
+    report_cmd.add_argument("input_path", nargs="?", help="Shorthand path to the target run directory.")
     report_cmd.add_argument(
         "--input",
-        default="data/inputs/sample_prd_login.md",
-        help="Path to the source PRD markdown/text file.",
+        dest="input_flag",
+        help="Path to the target run directory. Overrides the positional input when both are provided.",
     )
     return parser
 
@@ -84,14 +84,16 @@ def cmd_run(input_path: str) -> int:
     return 0
 
 
-def cmd_report(input_path: str, run_id: str) -> int:
-    if run_id != "latest":
-        raise SystemExit("Only run-id=latest is supported in the phase-1 scaffold.")
-    document = parse_prd(input_path)
-    test_points = extract_test_points(document)
-    report = build_bug_report(document, test_points, run_status="placeholder_success")
-    report_path = write_bug_report(report, test_points)
-    print(f"bug_report: {report_path}")
+def cmd_report(input_path: str) -> int:
+    report_result = create_bug_report_from_run(input_path)
+    print(f"Run status: {report_result['status']}")
+    print(f"Run directory: {report_result['run_dir']}")
+    print(f"Target script: {report_result['target_script']}")
+    print(f"Report generated: {'yes' if report_result['generated'] else 'no'}")
+    if report_result["generated"]:
+        print(f"Report path: {report_result['report_path']}")
+    if report_result.get("reason"):
+        print(f"Reason: {report_result['reason']}")
     return 0
 
 
@@ -106,7 +108,7 @@ def main() -> int:
     if args.command == "run":
         return cmd_run(_resolve_input_path(args.input_flag, args.input_path, "run"))
     if args.command == "report":
-        return cmd_report(args.input, args.run_id)
+        return cmd_report(_resolve_input_path(args.input_flag, args.input_path, "report"))
 
     raise SystemExit(f"Unknown command: {args.command}")
 
