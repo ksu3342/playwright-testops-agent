@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 from app.core.extractor import extract_test_points
+from app.core.generator import generate_test_script
 from app.core.parser import parse_prd
 
 
@@ -72,3 +73,29 @@ def test_cli_generate_command_supports_positional_input() -> None:
     assert "Extracted 1 test point(s):" in result.stdout
     assert "generated/tests/test_login_generated.py" in result.stdout
     assert Path("generated/tests/test_login_generated.py").exists()
+
+
+def test_cli_run_command_reports_passed_status_for_local_asset() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "app.main", "run", "tests/assets/runner_pass_case.py"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "Run status: passed" in result.stdout
+    assert "Run directory: data/runs/" in result.stdout
+
+
+def test_cli_run_command_reports_blocked_status_for_generated_scaffold() -> None:
+    document = parse_prd("data/inputs/sample_prd_login.md")
+    test_points = extract_test_points(document)
+    script_path = generate_test_script(document, test_points)
+
+    result = subprocess.run(
+        [sys.executable, "-m", "app.main", "run", str(script_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "Run status: blocked" in result.stdout
+    assert "Reason:" in result.stdout

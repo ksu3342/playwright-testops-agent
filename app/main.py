@@ -3,12 +3,11 @@ import json
 from dataclasses import asdict
 from typing import Optional
 
-from app.core.collector import collect_run_artifacts
 from app.core.extractor import extract_test_points
 from app.core.generator import generate_test_script
 from app.core.parser import parse_prd
 from app.core.reporter import build_bug_report, write_bug_report
-from app.core.runner import run_generated_test
+from app.core.runner import run_test_script
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,8 +30,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the input PRD markdown/text file. Overrides the positional input when both are provided.",
     )
 
-    run_cmd = subparsers.add_parser("run", help="Run the placeholder phase-1 pipeline.")
-    run_cmd.add_argument("--input", required=True, help="Path to the input PRD markdown/text file.")
+    run_cmd = subparsers.add_parser("run", help="Run a local test script and collect honest execution artifacts.")
+    run_cmd.add_argument("input_path", nargs="?", help="Shorthand path to the target test script.")
+    run_cmd.add_argument(
+        "--input",
+        dest="input_flag",
+        help="Path to the target test script. Overrides the positional input when both are provided.",
+    )
 
     report_cmd = subparsers.add_parser("report", help="Generate a placeholder bug report from the latest run.")
     report_cmd.add_argument("--run-id", default="latest", help="Run id to report on. Only 'latest' is supported now.")
@@ -66,18 +70,17 @@ def cmd_generate(input_path: str) -> int:
         print(f"- {test_point.id} [{test_point.type}] {test_point.title}")
     print("Generated script file(s):")
     print(f"- {script_path.as_posix()}")
+    print("Execution is not part of this milestone. Generated files may still contain TODO comments for missing selectors or assertions.")
     return 0
 
 
 def cmd_run(input_path: str) -> int:
-    document = parse_prd(input_path)
-    test_points = extract_test_points(document)
-    script_path = generate_test_script(document, test_points)
-    run_result = run_generated_test(str(script_path))
-    artifact_path = collect_run_artifacts(run_result)
-    print(f"generated_script: {script_path}")
-    print(f"run_status: {run_result['status']}")
-    print(f"run_artifacts: {artifact_path}")
+    run_result = run_test_script(input_path)
+    print(f"Run status: {run_result['status']}")
+    print(f"Run directory: {run_result['run_dir']}")
+    print(f"Target script: {run_result['target_script']}")
+    if run_result.get("reason"):
+        print(f"Reason: {run_result['reason']}")
     return 0
 
 
@@ -101,7 +104,7 @@ def main() -> int:
     if args.command == "generate":
         return cmd_generate(_resolve_input_path(args.input_flag, args.input_path, "generate"))
     if args.command == "run":
-        return cmd_run(args.input)
+        return cmd_run(_resolve_input_path(args.input_flag, args.input_path, "run"))
     if args.command == "report":
         return cmd_report(args.input, args.run_id)
 

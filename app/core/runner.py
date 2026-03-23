@@ -1,27 +1,162 @@
+import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
-from app.config import get_settings
+from app.core.collector import REPO_ROOT, create_run_directory, collect_run_artifacts
 
 
-def run_generated_test(script_path: str) -> dict[str, str]:
-    """Placeholder runner that records intent instead of launching a browser."""
-    settings = get_settings()
-    run_log = Path("data/runs/latest.log")
-    run_log.parent.mkdir(parents=True, exist_ok=True)
-    run_log.write_text(
-        "\n".join(
-            [
-                "Phase-1 placeholder run",
-                f"script_path={script_path}",
-                f"browser={settings.playwright_browser}",
-                f"headless={settings.headless}",
-                "status=placeholder_success",
-            ]
+INCOMPLETE_MARKERS = [
+    "TODO",
+    "<...SELECTOR...>",
+    "generated test expects a pytest-playwright style `page` fixture",
+    "Missing selectors and unsupported assertions remain TODO comments on purpose.",
+]
+ENVIRONMENT_ERROR_MARKERS = [
+    "ModuleNotFoundError",
+    "No module named",
+    "ImportError",
+    "fixture 'page' not found",
+    "playwright",
+]
+
+
+def _slugify(value: str) -> str:
+    return "".join(character if character.isalnum() else "_" for character in value.lower()).strip("_") or "run"
+
+
+def _resolve_target_script(script_path: str) -> Path:
+    candidate = Path(script_path)
+    if candidate.is_absolute():
+        return candidate.resolve()
+
+    repo_candidate = (REPO_ROOT / candidate).resolve()
+    if repo_candidate.exists():
+        return repo_candidate
+    return candidate.resolve()
+
+
+def _relative_to_repo(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        return path.resolve().as_posix()
+
+
+def _build_run_id(target_script: Path) -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    return f"{timestamp}_{_slugify(target_script.stem)}"
+
+
+def _readiness_reason(script_text: str) -> Optional[str]:
+    for marker in INCOMPLETE_MARKERS:
+        if marker in script_text:
+            return f"Script contains incomplete implementation markers ({marker}) and is not ready for honest execution."
+    return None
+
+
+def _classify_execution_result(return_code: int, stdout_text: str, stderr_text: str) -> tuple[str, str]:
+    combined_output = "\n".join([stdout_text, stderr_text])
+    if return_code == 0:
+        return "passed", "Execution completed successfully."
+    if any(marker in combined_output for marker in ENVIRONMENT_ERROR_MARKERS):
+        return "environment_error", "Execution could not proceed because required runtime support is missing."
+    return "failed", "Execution ran but reported a failing test or runtime error."
+
+
+def run_test_script(script_path: str) -> dict[str, object]:
+    target_script = _resolve_target_script(script_path)
+    run_id = _build_run_id(target_script)
+    run_dir = create_run_directory(run_id)
+    start_time = datetime.now(timezone.utc)
+
+    if not target_script.exists():
+        summary = {
+            "run_id": run_id,
+            "target_script": _relative_to_repo(target_script),
+            "status": "environment_error",
+            "reason": "Target script was not found.",
+            "command": "",
+            "start_time": start_time.isoformat(),
+            "end_time": start_time.isoformat(),
+            "duration_seconds": 0.0,
+            "return_code": None,
+            "execution_readiness": "missing_target",
+            "notes": ["Provide a valid script path before running the pipeline."],
+        }
+        artifact_paths = collect_run_artifacts(run_dir, summary, "", "", "")
+        summary["run_dir"] = artifact_paths["run_dir"]
+        return summary
+
+    script_text = target_script.read_text(encoding="utf-8")
+    readiness_reason = _readiness_reason(script_text)
+    command = [sys.executable, "-m", "pytest", _relative_to_repo(target_script), "-q"]
+    command_text = subprocess.list2cmdline(command)
+
+    if readiness_reason:
+        end_time = datetime.now(timezone.utc)
+        summary = {
+            "run_id": run_id,
+            "target_script": _relative_to_repo(target_script),
+            "status": "blocked",
+            "reason": readiness_reason,
+            "command": command_text,
+            "start_time": start_time.isoformat(),
+            "end_time": end_time.isoformat(),
+            "duration_seconds": round((end_time - start_time).total_seconds(), 6),
+            "return_code": None,
+            "execution_readiness": "blocked_by_incomplete_markers",
+            "notes": ["Execution was skipped on purpose to avoid pretending incomplete scaffolds are runnable."],
+        }
+        artifact_paths = collect_run_artifacts(run_dir, summary, command_text, "", "")
+        summary["run_dir"] = artifact_paths["run_dir"]
+        return summary
+
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
         )
-        + "\n",
-        encoding="utf-8",
-    )
-    return {"status": "placeholder_success", "log_path": str(run_log)}
+        end_time = datetime.now(timezone.utc)
+        status, reason = _classify_execution_result(completed.returncode, completed.stdout, completed.stderr)
+        summary = {
+            "run_id": run_id,
+            "target_script": _relative_to_repo(target_script),
+            "status": status,
+            "reason": reason,
+            "command": command_text,
+            "start_time": start_time.isoformat(),
+            "end_time": end_time.isoformat(),
+            "duration_seconds": round((end_time - start_time).total_seconds(), 6),
+            "return_code": completed.returncode,
+            "execution_readiness": "ready",
+            "notes": [],
+        }
+        artifact_paths = collect_run_artifacts(run_dir, summary, command_text, completed.stdout, completed.stderr)
+        summary["run_dir"] = artifact_paths["run_dir"]
+        return summary
+    except OSError as exc:
+        end_time = datetime.now(timezone.utc)
+        summary = {
+            "run_id": run_id,
+            "target_script": _relative_to_repo(target_script),
+            "status": "environment_error",
+            "reason": f"Execution could not start: {exc}",
+            "command": command_text,
+            "start_time": start_time.isoformat(),
+            "end_time": end_time.isoformat(),
+            "duration_seconds": round((end_time - start_time).total_seconds(), 6),
+            "return_code": None,
+            "execution_readiness": "ready",
+            "notes": ["Check the local Python/pytest environment before retrying."],
+        }
+        artifact_paths = collect_run_artifacts(run_dir, summary, command_text, "", str(exc))
+        summary["run_dir"] = artifact_paths["run_dir"]
+        return summary
 
 
-# TODO: Replace this with actual Playwright execution in the next phase.
+# TODO: Add real browser execution only when generated Playwright scripts are honestly ready to run.

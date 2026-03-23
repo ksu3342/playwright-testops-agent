@@ -181,5 +181,5 @@ cython_debug/
 .cursorindexingignore
 generated/tests/*.py
 generated/reports/*.md
-data/runs/*.json
-data/runs/*.log
+data/runs/*
+!data/runs/.gitkeep
