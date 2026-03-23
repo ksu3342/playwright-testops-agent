@@ -2,10 +2,10 @@ import argparse
 import json
 from dataclasses import asdict
 
-from app.core.collector import collect_run_artifacts
 from app.core.extractor import extract_test_points
-from app.core.generator import generate_test_script
 from app.core.parser import parse_prd
+from app.core.collector import collect_run_artifacts
+from app.core.generator import generate_test_script
 from app.core.reporter import build_bug_report, write_bug_report
 from app.core.runner import run_generated_test
 
@@ -22,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the input PRD markdown/text file. Overrides the positional input when both are provided.",
     )
 
-    generate_cmd = subparsers.add_parser("generate", help="Generate a placeholder Playwright script.")
+    generate_cmd = subparsers.add_parser("generate", help="Parse input and output extracted test points.")
     generate_cmd.add_argument("--input", required=True, help="Path to the input PRD markdown/text file.")
 
     run_cmd = subparsers.add_parser("run", help="Run the placeholder phase-1 pipeline.")
@@ -47,8 +47,7 @@ def cmd_parse(input_path: str) -> int:
 def cmd_generate(input_path: str) -> int:
     document = parse_prd(input_path)
     test_points = extract_test_points(document)
-    script_path = generate_test_script(document, test_points)
-    print(f"generated_script: {script_path}")
+    print(json.dumps([asdict(test_point) for test_point in test_points], indent=2))
     return 0
 
 
