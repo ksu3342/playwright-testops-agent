@@ -1,5 +1,6 @@
 import subprocess
 import sys
+from pathlib import Path
 
 from app.core.extractor import extract_test_points
 from app.core.parser import parse_prd
@@ -48,12 +49,26 @@ def test_cli_parse_command_supports_positional_input() -> None:
     assert '"feature_name": "User Login"' in result.stdout
 
 
-def test_cli_generate_command_prints_extracted_test_points() -> None:
+def test_cli_generate_command_prints_summary_and_generated_path() -> None:
     result = subprocess.run(
         [sys.executable, "-m", "app.main", "generate", "--input", "data/inputs/sample_prd_search.md"],
         check=True,
         capture_output=True,
         text=True,
     )
-    assert '"type": "happy_path"' in result.stdout
-    assert '"type": "negative_path"' in result.stdout
+    assert "Extracted 2 test point(s):" in result.stdout
+    assert "TP-001 [happy_path]" in result.stdout
+    assert "TP-002 [negative_path]" in result.stdout
+    assert "generated/tests/test_search_generated.py" in result.stdout
+
+
+def test_cli_generate_command_supports_positional_input() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "app.main", "generate", "data/inputs/sample_prd_login.md"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "Extracted 1 test point(s):" in result.stdout
+    assert "generated/tests/test_login_generated.py" in result.stdout
+    assert Path("generated/tests/test_login_generated.py").exists()

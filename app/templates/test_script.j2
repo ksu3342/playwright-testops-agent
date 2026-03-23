@@ -1,21 +1,53 @@
-from playwright.sync_api import sync_playwright
+import os
+import pytest
 
+playwright_sync_api = pytest.importorskip("playwright.sync_api")
+Page = playwright_sync_api.Page
 
-def run() -> None:
-    """
-    Placeholder generated Playwright script for: {{ title }}
-    """
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        page.goto("https://example.com")
-        page.screenshot(path="data/runs/placeholder_screenshot.png")
-        browser.close()
+BASE_URL = os.getenv("BASE_URL", "http://localhost:3000")
 
+# Generated from: {{ document_title }}
+# Feature: {{ feature_name }}
+# Page URL: {{ page_url }}
+# This scaffold is intentionally conservative.
+# Missing selectors and unsupported assertions remain TODO comments on purpose.
 
-if __name__ == "__main__":
-    # Placeholder test points:
-{% for point in test_points %}
-    # {{ point.id }} - {{ point.title }}
+{% for case in test_cases %}
+def {{ case.function_name }}(page: Page) -> None:
+    """Source test point: {{ case.id }} - {{ case.title }}"""
+    # TODO: This generated test expects a pytest-playwright style `page` fixture.
+    # Source test point type: {{ case.type }}
+    # Source sections: {{ case.source_sections | join(", ") }}
+    # Rationale: {{ case.rationale }}
+{% if case.page_url_expression %}
+    target_url = {{ case.page_url_expression }}
+    page.goto(target_url)
+{% else %}
+    # TODO: Add a concrete page URL before opening the page.
+{% endif %}
+
+    # Preconditions from PRD:
+{% if case.preconditions %}
+{% for item in case.preconditions %}
+    # - {{ item }}
 {% endfor %}
-    run()
+{% else %}
+    # - None provided
+{% endif %}
+
+    # Steps translated conservatively from the PRD:
+{% if case.step_todos %}
+{% for item in case.step_todos %}
+    {{ item }}
+{% endfor %}
+{% else %}
+    # TODO: Add safe page interactions for this test point.
+{% endif %}
+
+    # Expected result from PRD:
+    # {{ case.expected_result }}
+{% for item in case.assertion_todos %}
+    {{ item }}
+{% endfor %}
+
+{% endfor %}

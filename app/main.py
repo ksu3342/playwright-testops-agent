@@ -1,11 +1,12 @@
 import argparse
 import json
 from dataclasses import asdict
+from typing import Optional
 
-from app.core.extractor import extract_test_points
-from app.core.parser import parse_prd
 from app.core.collector import collect_run_artifacts
+from app.core.extractor import extract_test_points
 from app.core.generator import generate_test_script
+from app.core.parser import parse_prd
 from app.core.reporter import build_bug_report, write_bug_report
 from app.core.runner import run_generated_test
 
@@ -22,8 +23,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the input PRD markdown/text file. Overrides the positional input when both are provided.",
     )
 
-    generate_cmd = subparsers.add_parser("generate", help="Parse input and output extracted test points.")
-    generate_cmd.add_argument("--input", required=True, help="Path to the input PRD markdown/text file.")
+    generate_cmd = subparsers.add_parser("generate", help="Parse input, extract test points, and generate script files.")
+    generate_cmd.add_argument("input_path", nargs="?", help="Shorthand input path for the PRD markdown/text file.")
+    generate_cmd.add_argument(
+        "--input",
+        dest="input_flag",
+        help="Path to the input PRD markdown/text file. Overrides the positional input when both are provided.",
+    )
 
     run_cmd = subparsers.add_parser("run", help="Run the placeholder phase-1 pipeline.")
     run_cmd.add_argument("--input", required=True, help="Path to the input PRD markdown/text file.")
@@ -38,6 +44,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_input_path(input_flag: Optional[str], input_path: Optional[str], command_name: str) -> str:
+    resolved = input_flag or input_path
+    if not resolved:
+        raise SystemExit(f"{command_name} requires an input path. Use '{command_name} <path>' or '{command_name} --input <path>'.")
+    return resolved
+
+
 def cmd_parse(input_path: str) -> int:
     document = parse_prd(input_path)
     print(json.dumps(asdict(document), indent=2))
@@ -47,7 +60,12 @@ def cmd_parse(input_path: str) -> int:
 def cmd_generate(input_path: str) -> int:
     document = parse_prd(input_path)
     test_points = extract_test_points(document)
-    print(json.dumps([asdict(test_point) for test_point in test_points], indent=2))
+    script_path = generate_test_script(document, test_points)
+    print(f"Extracted {len(test_points)} test point(s):")
+    for test_point in test_points:
+        print(f"- {test_point.id} [{test_point.type}] {test_point.title}")
+    print("Generated script file(s):")
+    print(f"- {script_path.as_posix()}")
     return 0
 
 
@@ -79,12 +97,9 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "parse":
-        input_path = args.input_flag or args.input_path
-        if not input_path:
-            raise SystemExit("parse requires an input path. Use 'parse <path>' or 'parse --input <path>'.")
-        return cmd_parse(input_path)
+        return cmd_parse(_resolve_input_path(args.input_flag, args.input_path, "parse"))
     if args.command == "generate":
-        return cmd_generate(args.input)
+        return cmd_generate(_resolve_input_path(args.input_flag, args.input_path, "generate"))
     if args.command == "run":
         return cmd_run(args.input)
     if args.command == "report":
