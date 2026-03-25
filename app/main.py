@@ -1,18 +1,31 @@
-import argparse
+﻿import argparse
 import json
 from dataclasses import asdict
+from pathlib import Path
 from typing import Optional
 
 from app.core.extractor import extract_test_points
 from app.core.generator import generate_test_script
+from app.core.normalizer import NormalizationError, normalize_requirement_file
 from app.core.parser import parse_prd
 from app.core.reporter import create_bug_report_from_run
 from app.core.runner import run_test_script
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CLI scaffold for the Playwright TestOps Agent MVP.")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    normalize_cmd = subparsers.add_parser("normalize", help="Normalize free-text requirement notes into parser-compatible PRD markdown.")
+    normalize_cmd.add_argument("input_path", nargs="?", help="Shorthand input path for the free-text requirement file.")
+    normalize_cmd.add_argument(
+        "--input",
+        dest="input_flag",
+        help="Path to the free-text requirement file. Overrides the positional input when both are provided.",
+    )
 
     parse_cmd = subparsers.add_parser("parse", help="Parse a simple PRD or page description file.")
     parse_cmd.add_argument("input_path", nargs="?", help="Shorthand input path for the PRD markdown/text file.")
@@ -53,6 +66,25 @@ def _resolve_input_path(input_flag: Optional[str], input_path: Optional[str], co
     if not resolved:
         raise SystemExit(f"{command_name} requires an input path. Use '{command_name} <path>' or '{command_name} --input <path>'.")
     return resolved
+
+
+def _relative_to_repo(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        return path.resolve().as_posix()
+
+
+def cmd_normalize(input_path: str) -> int:
+    try:
+        result = normalize_requirement_file(input_path)
+    except NormalizationError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    print(f"normalized_output: {_relative_to_repo(result.output_path)}")
+    print(f"provider_used: {result.provider_name}")
+    print(f"parser_validation_passed: {'yes' if result.parser_validation_passed else 'no'}")
+    return 0
 
 
 def cmd_parse(input_path: str) -> int:
@@ -101,6 +133,8 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
 
+    if args.command == "normalize":
+        return cmd_normalize(_resolve_input_path(args.input_flag, args.input_path, "normalize"))
     if args.command == "parse":
         return cmd_parse(_resolve_input_path(args.input_flag, args.input_path, "parse"))
     if args.command == "generate":

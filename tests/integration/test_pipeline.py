@@ -1,9 +1,10 @@
-import subprocess
+﻿import subprocess
 import sys
 from pathlib import Path
 
 from app.core.extractor import extract_test_points
 from app.core.generator import generate_test_script
+from app.core.normalizer import normalize_requirement_file
 from app.core.parser import parse_prd
 from app.core.runner import run_test_script
 
@@ -49,6 +50,40 @@ def test_cli_parse_command_supports_positional_input() -> None:
     )
     assert '"title": "Login Page PRD"' in result.stdout
     assert '"feature_name": "User Login"' in result.stdout
+
+
+def test_cli_normalize_command_generates_parser_compatible_markdown() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "app.main", "normalize", "--input", "data/inputs/free_text_login_notes.md"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "normalized_output: data/normalized/free_text_login_notes_normalized.md" in result.stdout
+    assert "provider_used: mock" in result.stdout
+    assert "parser_validation_passed: yes" in result.stdout
+    assert Path("data/normalized/free_text_login_notes_normalized.md").exists()
+
+
+def test_cli_normalize_command_supports_positional_input() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "app.main", "normalize", "data/inputs/free_text_search_notes.md"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "normalized_output: data/normalized/free_text_search_notes_normalized.md" in result.stdout
+    assert "provider_used: mock" in result.stdout
+
+
+def test_pipeline_normalize_then_parse_flow_returns_structured_document(tmp_path: Path) -> None:
+    result = normalize_requirement_file("data/inputs/free_text_search_notes.md", output_dir=tmp_path)
+    assert result.parser_validation_passed is True
+
+    document = parse_prd(str(result.output_path))
+    assert document.feature_name == "Keyword Search"
+    assert document.page_url == "/search"
+    assert any("empty state" in item.lower() for item in document.expected_results)
 
 
 def test_cli_generate_command_prints_summary_and_generated_path() -> None:

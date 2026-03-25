@@ -183,3 +183,6 @@ generated/tests/*.py
 generated/reports/*.md
 data/runs/*
 !data/runs/.gitkeep
+
+data/normalized/*.md
+!data/normalized/.gitkeep
