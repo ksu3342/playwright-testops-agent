@@ -186,3 +186,6 @@ data/runs/*
 
 data/normalized/*.md
 !data/normalized/.gitkeep
+
+# Local session handoff notes
+SESSION_HANDOFF_PHASE_6_5.json

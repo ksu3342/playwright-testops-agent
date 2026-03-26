@@ -26,6 +26,10 @@ def build_parser() -> argparse.ArgumentParser:
         dest="input_flag",
         help="Path to the free-text requirement file. Overrides the positional input when both are provided.",
     )
+    normalize_cmd.add_argument(
+        "--provider",
+        help="Normalization provider to use. Defaults to the configured provider, which remains 'mock' unless changed explicitly.",
+    )
 
     parse_cmd = subparsers.add_parser("parse", help="Parse a simple PRD or page description file.")
     parse_cmd.add_argument("input_path", nargs="?", help="Shorthand input path for the PRD markdown/text file.")
@@ -75,9 +79,9 @@ def _relative_to_repo(path: Path) -> str:
         return path.resolve().as_posix()
 
 
-def cmd_normalize(input_path: str) -> int:
+def cmd_normalize(input_path: str, provider_name: Optional[str] = None) -> int:
     try:
-        result = normalize_requirement_file(input_path)
+        result = normalize_requirement_file(input_path, provider_name=provider_name)
     except NormalizationError as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -134,7 +138,10 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "normalize":
-        return cmd_normalize(_resolve_input_path(args.input_flag, args.input_path, "normalize"))
+        return cmd_normalize(
+            _resolve_input_path(args.input_flag, args.input_path, "normalize"),
+            provider_name=args.provider,
+        )
     if args.command == "parse":
         return cmd_parse(_resolve_input_path(args.input_flag, args.input_path, "parse"))
     if args.command == "generate":

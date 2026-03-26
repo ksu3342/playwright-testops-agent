@@ -1,32 +1,36 @@
 # Playwright TestOps Agent
 
-MVP project for:
-- reading simple product/page descriptions
+CLI-first TestOps Agent MVP for:
+- parsing structured PRD markdown
 - extracting test points
-- generating Playwright test scripts
-- executing tests
-- collecting screenshots/logs
-- drafting bug reports
+- generating Playwright test scaffolds
+- running local scripts and collecting artifacts
+- drafting bug report markdown for failed runs
+- optionally normalizing free-text requirement notes before the deterministic pipeline
 
-## Phase 1 Scope
+## Current Scope
 
-This phase is intentionally CLI-first.
+The project remains intentionally CLI-first.
 
-The goal is to keep the project:
+Current positioning:
 - honest
 - runnable
 - demoable
 - easy to explain in interviews
 
-Current scaffold includes placeholder modules for:
-- parsing a simple PRD/page description
-- extracting test points
-- generating a Playwright test file
-- running a placeholder pipeline
-- collecting run artifacts
-- drafting a simple bug report
+The current baseline pipeline is:
+- `parse`
+- `extract`
+- `generate`
+- `run`
+- `report`
 
-It does not yet implement real LLM reasoning or full browser execution logic.
+The only LLM-assisted step is `normalize`, which converts free-text notes into parser-compatible PRD markdown before the deterministic downstream flow.
+
+This project is not:
+- a multi-agent platform
+- a full autonomous testing platform
+- a confirmed RCA system
 
 ## Project Structure
 
@@ -82,6 +86,32 @@ python -m app.main --help
 ```bash
 python -m app.main parse --input data/inputs/sample_prd_login.md
 python -m app.main generate --input data/inputs/sample_prd_login.md
-python -m app.main run --input data/inputs/sample_prd_login.md
-python -m app.main report --run-id latest
+python -m app.main run --input tests/assets/runner_pass_case.py
 ```
+
+5. Try free-text normalization with the deterministic mock provider:
+
+```bash
+python -m app.main normalize --input data/inputs/free_text_login_notes.md
+python -m app.main normalize --input data/inputs/free_text_search_notes.md --provider mock
+```
+
+## Normalization Providers
+
+`mock` remains the default provider. It is deterministic and safe for local tests.
+
+`live` is optional and only applies to `normalize`. To enable it, set all of these environment variables explicitly before running `--provider live`:
+
+```bash
+LLM_LIVE_BASE_URL=...
+LLM_LIVE_MODEL=...
+LLM_LIVE_API_KEY=...
+```
+
+Example:
+
+```bash
+python -m app.main normalize --input data/inputs/free_text_login_notes.md --provider live
+```
+
+If the live provider configuration is missing, normalization fails clearly and does not pretend to succeed.

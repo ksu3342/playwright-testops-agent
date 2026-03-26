@@ -1,4 +1,5 @@
-﻿import subprocess
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -74,6 +75,55 @@ def test_cli_normalize_command_supports_positional_input() -> None:
     )
     assert "normalized_output: data/normalized/free_text_search_notes_normalized.md" in result.stdout
     assert "provider_used: mock" in result.stdout
+
+
+def test_cli_normalize_command_supports_explicit_mock_provider_selection() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.main",
+            "normalize",
+            "--input",
+            "data/inputs/free_text_login_notes.md",
+            "--provider",
+            "mock",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "normalized_output: data/normalized/free_text_login_notes_normalized.md" in result.stdout
+    assert "provider_used: mock" in result.stdout
+    assert "parser_validation_passed: yes" in result.stdout
+
+
+def test_cli_normalize_command_fails_clearly_when_live_config_is_missing() -> None:
+    env = dict(os.environ)
+    env.pop("LLM_LIVE_BASE_URL", None)
+    env.pop("LLM_LIVE_MODEL", None)
+    env.pop("LLM_LIVE_API_KEY", None)
+    env["LLM_PROVIDER"] = "mock"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.main",
+            "normalize",
+            "--input",
+            "data/inputs/free_text_login_notes.md",
+            "--provider",
+            "live",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "Live provider configuration is missing required environment variable(s)" in result.stderr
+    assert "LLM_LIVE_BASE_URL, LLM_LIVE_MODEL, LLM_LIVE_API_KEY" in result.stderr
 
 
 def test_pipeline_normalize_then_parse_flow_returns_structured_document(tmp_path: Path) -> None:

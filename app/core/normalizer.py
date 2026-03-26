@@ -6,7 +6,8 @@ from typing import Optional, Tuple
 
 from app.config import get_settings
 from app.core.parser import parse_prd
-from app.llm.base import BaseLLMProvider
+from app.llm.base import BaseLLMProvider, LLMProviderError
+from app.llm.live_provider import LiveLLMProvider
 from app.llm.mock_provider import MockLLMProvider
 
 
@@ -93,13 +94,17 @@ def _select_provider(provider_name: Optional[str], provider: Optional[BaseLLMPro
         name = provider_name or provider.__class__.__name__
         return provider, str(name)
 
-    selected_name = (provider_name or get_settings().llm_provider or "mock").strip().lower()
+    settings = get_settings()
+    selected_name = (provider_name or settings.llm_provider or "mock").strip().lower()
     if selected_name == "mock":
         return MockLLMProvider(), "mock"
+    if selected_name == "live":
+        try:
+            return LiveLLMProvider.from_settings(settings), "live"
+        except LLMProviderError as exc:
+            raise NormalizationError(str(exc)) from exc
 
-    raise NormalizationError(
-        f"Live provider '{selected_name}' is not available in this phase. Use the mock provider or add a real provider implementation later."
-    )
+    raise NormalizationError(f"Unsupported provider '{selected_name}'. Supported providers: mock, live.")
 
 
 def normalize_requirement_file(
@@ -118,7 +123,10 @@ def normalize_requirement_file(
 
     llm_provider, resolved_provider_name = _select_provider(provider_name, provider)
     prompt = _build_prompt(raw_text)
-    response = llm_provider.generate(prompt)
+    try:
+        response = llm_provider.generate(prompt)
+    except LLMProviderError as exc:
+        raise NormalizationError(str(exc)) from exc
     normalized_markdown = _extract_markdown(response.content)
 
     destination_dir = (output_dir or NORMALIZED_DIR).resolve()

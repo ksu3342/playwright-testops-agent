@@ -6,6 +6,10 @@ class LLMResponse:
     content: str
 
 
+class LLMProviderError(RuntimeError):
+    """Raised when an LLM provider cannot complete a request honestly."""
+
+
 class BaseLLMProvider:
     """Small interface for future LLM-backed steps."""
 

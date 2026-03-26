@@ -53,10 +53,38 @@ def test_normalizer_output_can_continue_into_extraction(tmp_path: Path) -> None:
     assert any(point.type == "negative_path" for point in test_points)
 
 
-def test_normalizer_fails_cleanly_for_unavailable_live_provider(tmp_path: Path) -> None:
-    with pytest.raises(NormalizationError, match="Live provider"):
+def test_normalizer_supports_explicit_mock_provider_selection(tmp_path: Path) -> None:
+    result = normalize_requirement_file(
+        "data/inputs/free_text_login_notes.md",
+        provider_name="mock",
+        output_dir=tmp_path,
+    )
+
+    assert result.provider_name == "mock"
+    assert result.parser_validation_passed is True
+
+
+def test_normalizer_fails_cleanly_for_missing_live_provider_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LLM_LIVE_BASE_URL", raising=False)
+    monkeypatch.delenv("LLM_LIVE_MODEL", raising=False)
+    monkeypatch.delenv("LLM_LIVE_API_KEY", raising=False)
+
+    with pytest.raises(NormalizationError, match="LLM_LIVE_BASE_URL, LLM_LIVE_MODEL, LLM_LIVE_API_KEY"):
         normalize_requirement_file(
             "data/inputs/free_text_login_notes.md",
             provider_name="live",
+            output_dir=tmp_path,
+        )
+
+
+def test_normalizer_reads_provider_selection_from_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "live")
+    monkeypatch.delenv("LLM_LIVE_BASE_URL", raising=False)
+    monkeypatch.delenv("LLM_LIVE_MODEL", raising=False)
+    monkeypatch.delenv("LLM_LIVE_API_KEY", raising=False)
+
+    with pytest.raises(NormalizationError, match="Set them explicitly before using '--provider live'"):
+        normalize_requirement_file(
+            "data/inputs/free_text_login_notes.md",
             output_dir=tmp_path,
         )
