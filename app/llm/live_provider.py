@@ -12,8 +12,14 @@ from app.llm.base import BaseLLMProvider, LLMProviderError, LLMResponse
 
 SYSTEM_PROMPT = (
     "You normalize free-text requirement notes into parser-compatible PRD markdown. "
-    "Return only markdown that follows the requested heading structure. "
-    "Do not invent missing details."
+    "Return only markdown. The first non-empty line must be exactly '# Title'. "
+    "Use exactly these headings and do not rename them: "
+    "'# Title', '## Feature Name', '## Page URL', '## Preconditions', "
+    "'## User Actions', '## Expected Results'. "
+    "'# Title' must be followed by a non-empty title line. "
+    "'## Feature Name' must be followed by a non-empty feature name line. "
+    "Do not output code fences, commentary, placeholder filler, or '...'. "
+    "Leave missing section bodies blank instead of inventing content."
 )
 
 

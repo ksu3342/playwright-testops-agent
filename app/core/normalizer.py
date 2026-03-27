@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
@@ -23,6 +24,9 @@ REQUIRED_HEADINGS = [
     "## User Actions",
     "## Expected Results",
 ]
+REQUIRED_HEADING_PATTERNS = [re.compile(rf"^{re.escape(heading)}\s*$", re.MULTILINE) for heading in REQUIRED_HEADINGS]
+PLACEHOLDER_LINE_PATTERN = re.compile(r"^(?:[-*]|\d+[.)])?\s*\.\.\.\s*$")
+REQUIRED_SCALAR_SECTIONS = {"Title", "Feature Name"}
 
 
 class NormalizationError(RuntimeError):
@@ -63,26 +67,66 @@ def _extract_markdown(response_text: str) -> str:
     return text
 
 
+def _is_placeholder_line(line: str) -> bool:
+    return bool(PLACEHOLDER_LINE_PATTERN.match(line.strip()))
+
+
+def _repair_live_markdown_structure(markdown: str) -> str:
+    lines = markdown.replace("\r\n", "\n").split("\n")
+    first_nonempty_index = next((index for index, line in enumerate(lines) if line.strip()), None)
+    if first_nonempty_index is not None:
+        first_line = lines[first_nonempty_index].strip()
+        if first_line.startswith("#") and not first_line.startswith("##"):
+            heading_text = re.sub(r"^#+\s*", "", first_line).strip()
+            if heading_text and heading_text != "Title":
+                lines[first_nonempty_index] = "# Title"
+                next_nonempty = next(
+                    (line.strip() for line in lines[first_nonempty_index + 1 :] if line.strip()),
+                    "",
+                )
+                if next_nonempty != heading_text:
+                    lines.insert(first_nonempty_index + 1, heading_text)
+
+    repaired_lines = [line.rstrip() for line in lines if not _is_placeholder_line(line)]
+    repaired_text = "\n".join(repaired_lines).strip()
+    return repaired_text + "\n" if repaired_text else ""
+
+
+def _first_nonempty_line(text: str) -> Optional[str]:
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return None
+
+
+def _has_exact_required_headings(text: str) -> bool:
+    return all(pattern.search(text) for pattern in REQUIRED_HEADING_PATTERNS)
+
+
 def _build_prompt(raw_text: str) -> str:
     return (
         "Normalize the following requirement notes into parser-compatible PRD markdown.\n"
-        "Use this exact heading structure and nothing broader than the input supports:\n\n"
+        "Output only markdown and keep the downstream contract exact.\n\n"
+        "Required exact headings, in this exact order:\n"
         "# Title\n"
-        "...\n\n"
         "## Feature Name\n"
-        "...\n\n"
         "## Page URL\n"
-        "...\n\n"
         "## Preconditions\n"
-        "- ...\n\n"
         "## User Actions\n"
-        "1. ...\n\n"
-        "## Expected Results\n"
-        "- ...\n\n"
-        "Rules:\n"
+        "## Expected Results\n\n"
+        "Formatting rules:\n"
+        "- The first non-empty line must be exactly '# Title'.\n"
+        "- Do not rename any heading.\n"
+        "- Put scalar values on the line after the heading.\n"
+        "- '# Title' must have a non-empty body line directly under it.\n"
+        "- '## Feature Name' must have a non-empty body line directly under it.\n"
+        "- Use '-' list items for Preconditions and Expected Results.\n"
+        "- Use numbered list items for User Actions.\n"
+        "- If information is missing, leave that section body blank.\n"
+        "- Do not output code fences, commentary, placeholder filler, or '...'.\n"
         "- Do not invent URLs, selectors, business rules, or edge cases.\n"
-        "- If information is missing, leave the section empty.\n"
-        "- Keep the output concise and deterministic.\n\n"
+        "- Do not add any headings beyond the six required headings.\n\n"
         "<<<RAW_REQUIREMENT_NOTES>>>\n"
         f"{raw_text.strip()}\n"
         "<<<END_RAW_REQUIREMENT_NOTES>>>"
@@ -128,18 +172,31 @@ def normalize_requirement_file(
     except LLMProviderError as exc:
         raise NormalizationError(str(exc)) from exc
     normalized_markdown = _extract_markdown(response.content)
+    repaired_markdown = _repair_live_markdown_structure(normalized_markdown) if resolved_provider_name == "live" else normalized_markdown
 
     destination_dir = (output_dir or NORMALIZED_DIR).resolve()
     destination_dir.mkdir(parents=True, exist_ok=True)
     output_path = destination_dir / f"{source_path.stem}_normalized.md"
-    normalized_text = normalized_markdown.rstrip() + "\n"
+    normalized_text = repaired_markdown.rstrip() + "\n"
     output_path.write_text(normalized_text, encoding="utf-8")
 
-    parser_validation_passed = all(heading in normalized_markdown for heading in REQUIRED_HEADINGS)
-    missing_sections: list[str] = []
-    if parser_validation_passed:
-        document = parse_prd(str(output_path))
-        missing_sections = document.missing_sections
+    document = parse_prd(str(output_path))
+    required_scalar_sections_present = not any(section in document.missing_sections for section in REQUIRED_SCALAR_SECTIONS)
+    parser_validation_passed = (
+        _first_nonempty_line(normalized_text) == "# Title"
+        and _has_exact_required_headings(normalized_text)
+        and not any(_is_placeholder_line(line) for line in normalized_text.splitlines())
+        and document.title is not None
+        and document.feature_name is not None
+        and required_scalar_sections_present
+    )
+    missing_sections = document.missing_sections
+
+    if resolved_provider_name == "live" and not parser_validation_passed:
+        raise NormalizationError(
+            f"Live provider output is still not parser-compatible after thin repair and is invalid for downstream use. "
+            f"Saved output to: {output_path.as_posix()}"
+        )
 
     return NormalizationResult(
         input_path=source_path.as_posix(),
