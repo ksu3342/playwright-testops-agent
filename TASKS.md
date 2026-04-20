@@ -18,4 +18,5 @@
 - [ ] Draft bug report from actual failures
 
 ## Phase 4: Thin FastAPI Wrapper (Optional after CLI)
-- [ ] Add thin FastAPI wrapper later if needed
+- [x] Add thin FastAPI wrapper that calls existing core functions directly
+- [x] Add Docker packaging for API deployment

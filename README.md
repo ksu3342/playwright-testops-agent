@@ -27,6 +27,9 @@ The current baseline pipeline is:
 
 The only LLM-assisted step is `normalize`, which converts free-text notes into parser-compatible PRD markdown before the deterministic downstream flow.
 
+The project now also includes a thin FastAPI wrapper for service-style usage.
+The API calls the same Python core functions directly and keeps the existing status semantics such as `blocked` and `environment_error`.
+
 This project is not:
 - a multi-agent platform
 - a full autonomous testing platform
@@ -39,6 +42,7 @@ playwright-testops-agent/
 |- app/
 |  |- core/
 |  |- llm/
+|  |- api/
 |  |- schemas/
 |  |- templates/
 |  |- utils/
@@ -63,7 +67,7 @@ playwright-testops-agent/
 ## How to Run
 
 1. Create and activate a virtual environment
-2. Install dependencies for the current parser milestone:
+2. Install dependencies for the CLI and API layers:
 
 ```bash
 pip install -r requirements-core.txt
@@ -115,3 +119,85 @@ python -m app.main normalize --input data/inputs/free_text_login_notes.md --prov
 ```
 
 If the live provider configuration is missing, normalization fails clearly and does not pretend to succeed.
+
+## API Usage
+
+Start the API locally:
+
+```bash
+uvicorn app.api.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Health check:
+
+```powershell
+curl.exe http://127.0.0.1:8000/healthz
+```
+
+Normalize inline free-text notes:
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/normalize" `
+  -H "Content-Type: application/json" `
+  -d '{"content":"Login page notes...","filename":"login_notes.md","provider":"mock"}'
+```
+
+Parse an existing PRD file:
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/parse" `
+  -H "Content-Type: application/json" `
+  -d '{"input_path":"data/inputs/sample_prd_login.md"}'
+```
+
+Generate a Playwright scaffold:
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/generate" `
+  -H "Content-Type: application/json" `
+  -d '{"input_path":"data/inputs/sample_prd_search.md"}'
+```
+
+Run an existing test asset:
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/run" `
+  -H "Content-Type: application/json" `
+  -d '{"input_path":"tests/assets/runner_fail_case.py"}'
+```
+
+Draft a bug report from a failed run:
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/report" `
+  -H "Content-Type: application/json" `
+  -d '{"input_path":"data/runs/<run_id>"}'
+```
+
+List stored runs from `data/runs`:
+
+```powershell
+curl.exe http://127.0.0.1:8000/api/v1/runs
+```
+
+Read one stored run summary from `data/runs/<run_id>/summary.json`:
+
+```powershell
+curl.exe http://127.0.0.1:8000/api/v1/runs/<run_id>
+```
+
+Read the stored artifact paths for one run:
+
+```powershell
+curl.exe http://127.0.0.1:8000/api/v1/runs/<run_id>/artifacts
+```
+
+## Docker Usage
+
+Build and start the API container:
+
+```bash
+docker compose up --build
+```
+
+The compose setup keeps `data/` and `generated/` mounted so run artifacts and generated reports remain on the host filesystem.

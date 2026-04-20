@@ -1,0 +1,156 @@
+from pathlib import Path
+import shutil
+from uuid import uuid4
+
+from fastapi.testclient import TestClient
+
+from app.api.main import app
+from app.core.collector import RUNS_DIR
+
+
+client = TestClient(app)
+
+
+def _create_run(input_path: str) -> dict[str, object]:
+    response = client.post("/api/v1/run", json={"input_path": input_path})
+
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_healthz_returns_ok() -> None:
+    response = client.get("/healthz")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_normalize_endpoint_accepts_inline_content() -> None:
+    source_content = Path("data/inputs/free_text_login_notes.md").read_text(encoding="utf-8")
+
+    response = client.post(
+        "/api/v1/normalize",
+        json={
+            "content": source_content,
+            "filename": "free_text_login_notes.md",
+            "provider": "mock",
+        },
+    )
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["provider_used"] == "mock"
+    assert payload["parser_validation_passed"] is True
+    assert payload["resolved_input_path"].startswith("data/api_inputs/")
+    assert payload["output_path"].startswith("data/normalized/")
+
+
+def test_generate_then_run_endpoint_preserves_blocked_status() -> None:
+    source_content = Path("data/inputs/sample_prd_login.md").read_text(encoding="utf-8")
+
+    generate_response = client.post(
+        "/api/v1/generate",
+        json={
+            "content": source_content,
+            "filename": "sample_prd_login.md",
+        },
+    )
+    generate_payload = generate_response.json()
+
+    assert generate_response.status_code == 200
+    assert len(generate_payload["test_points"]) == 1
+
+    run_response = client.post(
+        "/api/v1/run",
+        json={"input_path": generate_payload["script_path"]},
+    )
+    run_payload = run_response.json()
+
+    assert run_response.status_code == 200
+    assert run_payload["status"] == "blocked"
+    assert "incomplete" in run_payload["reason"].lower()
+
+
+def test_run_then_report_endpoint_generates_bug_report_for_failed_run() -> None:
+    run_payload = _create_run("tests/assets/runner_fail_case.py")
+    assert run_payload["status"] == "failed"
+    assert run_payload["run_dir"].startswith("data/runs/")
+
+    report_response = client.post(
+        "/api/v1/report",
+        json={"input_path": run_payload["run_dir"]},
+    )
+    report_payload = report_response.json()
+
+    assert report_response.status_code == 200
+    assert report_payload["generated"] is True
+    assert report_payload["status"] == "failed"
+    assert report_payload["report_path"] is not None
+    assert report_payload["report_path"].startswith("generated/reports/")
+
+
+def test_runs_endpoint_lists_summary_backed_runs() -> None:
+    run_payload = _create_run("tests/assets/runner_pass_case.py")
+
+    response = client.get("/api/v1/runs")
+    payload = response.json()
+
+    assert response.status_code == 200
+    matched_runs = [item for item in payload["runs"] if item["run_id"] == run_payload["run_id"]]
+    assert matched_runs
+    assert matched_runs[0]["artifact_paths"]["summary"].endswith("/summary.json")
+    assert matched_runs[0]["run_dir"] == run_payload["run_dir"]
+
+
+def test_runs_endpoint_skips_invalid_run_summaries() -> None:
+    run_payload = _create_run("tests/assets/runner_pass_case.py")
+    bad_run_id = f"bad_run_{uuid4().hex}"
+    bad_run_dir = RUNS_DIR / bad_run_id
+    bad_run_dir.mkdir(parents=True, exist_ok=True)
+    (bad_run_dir / "summary.json").write_text("{invalid json", encoding="utf-8")
+
+    try:
+        response = client.get("/api/v1/runs")
+        payload = response.json()
+    finally:
+        shutil.rmtree(bad_run_dir, ignore_errors=True)
+
+    assert response.status_code == 200
+    assert any(item["run_id"] == run_payload["run_id"] for item in payload["runs"])
+    assert all(item["run_id"] != bad_run_id for item in payload["runs"])
+
+
+def test_run_detail_endpoint_returns_saved_summary() -> None:
+    run_payload = _create_run("tests/assets/runner_fail_case.py")
+
+    response = client.get(f"/api/v1/runs/{run_payload['run_id']}")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["run_id"] == run_payload["run_id"]
+    assert payload["status"] == run_payload["status"]
+    assert payload["target_script"] == run_payload["target_script"]
+    assert payload["artifact_paths"] == run_payload["artifact_paths"]
+
+
+def test_run_artifacts_endpoint_returns_saved_artifact_paths() -> None:
+    run_payload = _create_run("tests/assets/runner_pass_case.py")
+
+    response = client.get(f"/api/v1/runs/{run_payload['run_id']}/artifacts")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "run_id": run_payload["run_id"],
+        "run_dir": run_payload["run_dir"],
+        "artifact_paths": run_payload["artifact_paths"],
+    }
+
+
+def test_run_lookup_endpoints_return_404_for_missing_run() -> None:
+    missing_run_id = "missing_run_for_api_lookup"
+
+    detail_response = client.get(f"/api/v1/runs/{missing_run_id}")
+    artifacts_response = client.get(f"/api/v1/runs/{missing_run_id}/artifacts")
+
+    assert detail_response.status_code == 404
+    assert artifacts_response.status_code == 404

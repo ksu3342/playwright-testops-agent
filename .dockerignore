@@ -1,0 +1,11 @@
+.git
+.gitignore
+.venv
+.pytest_cache
+__pycache__/
+*.pyc
+generated/reports/
+generated/tests/
+data/runs/
+data/api_inputs/
+docs/
