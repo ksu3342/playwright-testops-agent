@@ -81,6 +81,9 @@ Playwright-related installation is only needed later for generation/execution st
 pip install -r requirements-e2e.txt
 ```
 
+`requirements.txt` intentionally mirrors the core-only baseline.
+If you want the full local setup used for generation and execution flows, install both `requirements-core.txt` and `requirements-e2e.txt`.
+
 3. Check the CLI:
 
 ```bash
@@ -121,6 +124,20 @@ python -m app.main normalize --input data/inputs/free_text_login_notes.md --prov
 ```
 
 If the live provider configuration is missing, normalization fails clearly and does not pretend to succeed.
+
+## Verification
+
+Run the full local test suite:
+
+```bash
+pytest -q
+```
+
+Run only the API integration tests:
+
+```bash
+pytest tests/integration/test_api.py -q
+```
 
 ## API Usage
 
@@ -224,4 +241,5 @@ docker compose up --build
 ```
 
 The container starts the same `uvicorn app.api.main:app` entrypoint and serves the same routes on port `8000`.
+The compose file can forward `HEADLESS`, `BASE_URL`, `PLAYWRIGHT_BROWSER`, and the optional `LLM_*` live-provider variables from your local environment.
 The compose setup keeps `data/` and `generated/` mounted so run artifacts and generated reports remain on the host filesystem.
