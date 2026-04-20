@@ -61,6 +61,8 @@ playwright-testops-agent/
 |- SPEC.md
 |- TASKS.md
 |- requirements.txt
+|- requirements-core.txt
+|- requirements-e2e.txt
 |- .env.example
 ```
 
@@ -121,6 +123,27 @@ python -m app.main normalize --input data/inputs/free_text_login_notes.md --prov
 If the live provider configuration is missing, normalization fails clearly and does not pretend to succeed.
 
 ## API Usage
+
+The API surface currently includes:
+- `GET /healthz`
+- `GET /api/v1/runs`
+- `GET /api/v1/runs/{run_id}`
+- `GET /api/v1/runs/{run_id}/artifacts`
+- `POST /api/v1/normalize`
+- `POST /api/v1/parse`
+- `POST /api/v1/generate`
+- `POST /api/v1/run`
+- `POST /api/v1/report`
+
+The API does:
+- expose the same core pipeline and run artifacts over HTTP
+- keep file-backed persistence under `data/runs` and `generated/reports`
+- preserve honest statuses such as `blocked`, `failed`, and `environment_error`
+
+The API does not:
+- add authentication
+- add database-backed state, queues, or async workers
+- claim this MVP is a production-grade orchestration platform
 
 Start the API locally:
 
@@ -200,4 +223,5 @@ Build and start the API container:
 docker compose up --build
 ```
 
+The container starts the same `uvicorn app.api.main:app` entrypoint and serves the same routes on port `8000`.
 The compose setup keeps `data/` and `generated/` mounted so run artifacts and generated reports remain on the host filesystem.

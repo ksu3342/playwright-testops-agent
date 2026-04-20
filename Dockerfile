@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 COPY requirements.txt requirements-core.txt requirements-e2e.txt ./
-RUN pip install --no-cache-dir -r requirements.txt -r requirements-e2e.txt
+RUN pip install --no-cache-dir -r requirements-core.txt -r requirements-e2e.txt
 
 COPY app ./app
 COPY data ./data
