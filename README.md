@@ -1,12 +1,24 @@
 # Playwright TestOps Agent
 
-CLI-first TestOps Agent MVP for:
-- parsing structured PRD markdown
-- extracting test points
-- generating Playwright test scaffolds
-- running local scripts and collecting artifacts
-- drafting bug report markdown for failed runs
-- optionally normalizing free-text requirement notes before the deterministic pipeline
+CLI-first TestOps Agent MVP with a thin FastAPI wrapper.
+
+It turns structured requirement inputs into conservative Playwright scaffolds, local run records, and bug report drafts through a narrow, explainable pipeline. The same Python core can be used from the CLI or through HTTP routes, while artifacts remain file-backed and easy to inspect.
+
+## Summary
+
+- CLI-first MVP with a thin FastAPI wrapper over the same Python core functions
+- optional `normalize` step before the deterministic core flow: `parse -> extract -> generate -> run -> report`
+- file-backed run history and artifact querying under `data/runs` and `generated/reports`
+- honest execution statuses such as `passed`, `failed`, `blocked`, and `environment_error`
+- runnable locally, Docker-packaged, and covered by API integration tests
+
+## What It Demonstrates
+
+- pipeline design from requirement input to generated test scaffold and run report
+- API service wrapping without replacing or rewriting the existing core workflow
+- file-backed artifact persistence and run history lookup
+- Docker packaging for a lightweight service delivery path
+- integration testing for health, pipeline endpoints, and run query endpoints
 
 ## Current Scope
 
@@ -17,6 +29,16 @@ Current positioning:
 - runnable
 - demoable
 - easy to explain in interviews
+
+It solves a narrow TestOps problem: normalize free-text notes when needed, parse structured requirement content, derive deterministic test points, generate conservative Playwright scaffolds, run local scripts, and preserve artifacts plus draft bug reports for later inspection.
+
+Current deliverables include:
+- generated Playwright test scaffolds
+- run summaries and artifact files under `data/runs`
+- bug report markdown under `generated/reports`
+- HTTP endpoints for pipeline execution and run/artifact lookup
+
+An optional `normalize` step can run before the deterministic core flow.
 
 The current baseline pipeline is:
 - `parse`
