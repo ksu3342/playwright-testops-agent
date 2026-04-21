@@ -1,5 +1,7 @@
 # TASKS
 
+Historical roadmap for implemented milestones and remaining MVP gaps.
+
 ## Phase 1: Scaffold Cleanup
 - [x] Initialize project structure
 - [x] Add CLI-first phase-1 scaffold
