@@ -1,16 +1,15 @@
-# Playwright TestOps Agent
+# Playwright TestOps Agent（测试工程原型）
 
-[简体中文](./README.zh-CN.md) | [English](./README.en.md)
+[English](./README.en.md)
 
-中文：面向测试工程场景的 AI 应用原型：将需求输入收口为测试脚手架、运行记录与缺陷报告草稿。  
-English: CLI-first TestOps Agent MVP with a thin FastAPI wrapper for requirement-to-test automation, run artifact querying, and bug report drafting.
+一个范围清楚、能跑通、能解释清楚的 TestOps 工程原型：把需求输入收口为保守的 Playwright 测试脚手架、本地运行记录与缺陷报告草稿。
 
-![Python Backend](https://img.shields.io/badge/Python-Backend-3776AB?logo=python&logoColor=white)
-![FastAPI Wrapper](https://img.shields.io/badge/FastAPI-Thin%20Wrapper-009688?logo=fastapi&logoColor=white)
-![Playwright Scaffolds](https://img.shields.io/badge/Playwright-Scaffold%20Generation-2EAD33?logo=playwright&logoColor=white)
-![Docker Packaged](https://img.shields.io/badge/Docker-Packaged-2496ED?logo=docker&logoColor=white)
-![Pytest](https://img.shields.io/badge/Pytest-Integration%20Tested-0A9EDC?logo=pytest&logoColor=white)
-![Scope Disciplined MVP](https://img.shields.io/badge/MVP-Honest%20Scope-6B7280)
+[![Python Backend](https://img.shields.io/badge/Python-Backend-3776AB?logo=python&logoColor=white)](./app/core/)
+[![FastAPI Wrapper](https://img.shields.io/badge/FastAPI-Thin%20Wrapper-009688?logo=fastapi&logoColor=white)](./app/api/main.py)
+[![Playwright Scaffold](https://img.shields.io/badge/Playwright-Scaffold%20Generation-2EAD33?logo=playwright&logoColor=white)](./app/core/generator.py)
+[![Docker Packaged](https://img.shields.io/badge/Docker-Packaged-2496ED?logo=docker&logoColor=white)](./Dockerfile)
+[![Pytest Integration Tested](https://img.shields.io/badge/Pytest-Integration%20Tested-0A9EDC?logo=pytest&logoColor=white)](./tests/integration/test_api.py)
+[![Honest Scope MVP](https://img.shields.io/badge/MVP-Honest%20Scope-6B7280)](./SPEC.md)
 
 ## Quick Start / 快速开始
 
@@ -20,71 +19,47 @@ pytest tests/integration/test_api.py -q
 uvicorn app.api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-For full walkthroughs, usage details, and scope notes, see [README.zh-CN.md](./README.zh-CN.md) and [README.en.md](./README.en.md).
+更完整的中文说明见 [README.zh-CN.md](./README.zh-CN.md)，英文版说明见 [README.en.md](./README.en.md)。
 
-## Summary / 项目摘要
+## 这个项目在做什么
 
-- `CLI-first TestOps Agent MVP + thin FastAPI wrapper`
-- optional `normalize` step before the deterministic core flow: `parse -> extract -> generate -> run -> report`
-- file-backed run history and report persistence under `data/runs` and `generated/reports`
-- same Python core reused by both CLI and HTTP routes
-- honest execution statuses: `passed`, `failed`, `blocked`, `environment_error`
-- Docker packaging and API integration tests are included in the repo
+这是一个 `CLI-first TestOps Agent MVP + thin FastAPI wrapper`。它把需求输入收口到一条范围清楚的主流程里：可选的 `normalize` 之后，进入确定性核心流程 `parse -> extract -> generate -> run -> report`。重点不是尽可能堆功能，而是让流程可运行、可检查、可解释。
 
-## JD Match / 岗位关键词对齐
+## 目前做到了什么
 
-| JD Keyword | Evidence in This Repo |
-| --- | --- |
-| Python Backend | [app/core](./app/core/), [app/api](./app/api/) |
-| FastAPI | [app/api/main.py](./app/api/main.py) |
-| API Design | [app/api/main.py](./app/api/main.py) |
-| Test Automation | [app/core/generator.py](./app/core/generator.py), [app/core/runner.py](./app/core/runner.py) |
-| Docker | [Dockerfile](./Dockerfile), [docker-compose.yml](./docker-compose.yml) |
-| Integration Testing | [tests/integration/test_api.py](./tests/integration/test_api.py) |
-| Artifact Persistence | [data/runs](./data/runs/), [generated/reports](./generated/reports/) |
-| LLM Application | [app/core/normalizer.py](./app/core/normalizer.py) |
+- CLI 已经覆盖 `normalize`、`parse`、`generate`、`run`、`report` 这些入口。
+- FastAPI 包装层已经存在，包含健康检查、流程执行、run 查询和 artifact 查询。
+- 运行产物仍然是文件型持久化，落在 [data/runs](./data/runs/) 和 [generated/reports](./generated/reports/)。
+- `/api/v1/run` 仍然是同步执行，不依赖队列、worker 或数据库。
+- 仓库里已经有 [Dockerfile](./Dockerfile)、[docker-compose.yml](./docker-compose.yml) 和 [API integration tests](./tests/integration/test_api.py)。
 
-## Architecture / 架构概览
+## 为什么这样设计
 
-```mermaid
-flowchart LR
-A["Free-text Notes / PRD"] --> B["normalize (optional)"]
-B --> C["parse"]
-C --> D["extract"]
-D --> E["generate"]
-E --> F["run"]
-F --> G["report"]
+- `normalize` 被刻意限定为可选前置步骤，也是当前唯一的 LLM-assisted step，这样可以把不确定性收窄在流程入口。
+- 真正的核心流程保持为 `parse -> extract -> generate -> run -> report`，便于解释和验证。
+- run artifacts 和 reports 继续直接落盘，避免为了这个 MVP 引入额外基础设施。
+- FastAPI 层只是 thin wrapper，直接复用同一套 Python core functions，而不是把项目重写成另一套系统。
 
-F --> H["data/runs"]
-G --> I["generated/reports"]
+## 工程证据
 
-J["CLI / FastAPI"] --> B
-J --> C
-J --> E
-J --> F
-J --> G
-```
+- [app/core/](./app/core/) 中已经有 parser、extractor、generator、runner、reporter、normalizer 这些核心模块。
+- [app/api/main.py](./app/api/main.py) 中已经定义了 `/healthz`、`/api/v1/*`、run 查询和 artifact 查询路由。
+- [tests/integration/test_api.py](./tests/integration/test_api.py) 覆盖了 health、normalize、generate -> run、run -> report、run lookup、坏 summary 跳过和 `404` 场景。
+- [Dockerfile](./Dockerfile) 使用 `uvicorn app.api.main:app` 作为服务入口，[docker-compose.yml](./docker-compose.yml) 提供本地运行配置。
+- [data/runs](./data/runs/) 与 [generated/reports](./generated/reports/) 是当前仓库里实际存在的 artifact 存储位置。
 
-## Engineering Evidence / 工程证据
+## 边界 / 不做什么
 
-- FastAPI routes exist in `app/api/main.py`, including pipeline endpoints and run/artifact lookup endpoints.
-- Artifacts are persisted on disk under `data/runs`, and generated bug reports are written under `generated/reports`.
-- Docker service delivery is present via `Dockerfile`, with `uvicorn app.api.main:app` as the container entrypoint.
-- API integration coverage exists in `tests/integration/test_api.py` for health, normalize, generate -> run, run -> report, run lookup, invalid summary skipping, and 404 cases.
-- The API layer calls the Python core functions directly instead of shelling out to the CLI.
+- 它是一个 CLI-first 的工程原型，不是 production-grade platform。
+- `normalize` 是可选步骤，而不是把整个流程都改造成 LLM 驱动系统。
+- `/api/v1/run` 仍然是同步执行，不是 queue-backed async execution service。
+- 当前持久化仍然是文件系统，不是 Redis、MySQL 或其他数据库驱动的平台。
+- 这里没有前端、认证层、多 Agent 编排或完整测试平台的声称。
 
-## Scope / Non-goals / 边界说明
+## 进一步阅读
 
-- This repo is a CLI-first MVP, not a production-grade orchestration system.
-- `normalize` is optional and is the only LLM-assisted step.
-- `/api/v1/run` is synchronous, not a queue-backed async execution service.
-- Persistence is file-backed, not Redis-backed, MySQL-backed, or otherwise database-backed.
-- No frontend, authentication layer, or multi-agent platform is claimed here.
-
-## Documentation / 文档入口
-
-- Full Chinese documentation: [README.zh-CN.md](./README.zh-CN.md)
-- Full English documentation: [README.en.md](./README.en.md)
-- Technical spec: [SPEC.md](./SPEC.md)
-- Historical roadmap: [TASKS.md](./TASKS.md)
-- License: [LICENSE](./LICENSE)
+- 英文版说明：[README.en.md](./README.en.md)
+- 更完整的中文说明：[README.zh-CN.md](./README.zh-CN.md)
+- 技术规格：[SPEC.md](./SPEC.md)
+- 历史路线图：[TASKS.md](./TASKS.md)
+- 许可证：[LICENSE](./LICENSE)
