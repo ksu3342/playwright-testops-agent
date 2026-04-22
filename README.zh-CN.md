@@ -4,12 +4,12 @@
 
 面向测试工程场景的 AI 应用原型：将需求输入收口为测试脚手架、运行记录与缺陷报告草稿。
 
-![Python Backend](https://img.shields.io/badge/Python-Backend-3776AB?logo=python&logoColor=white)
-![FastAPI Wrapper](https://img.shields.io/badge/FastAPI-Thin%20Wrapper-009688?logo=fastapi&logoColor=white)
-![Playwright Scaffolds](https://img.shields.io/badge/Playwright-Scaffold%20Generation-2EAD33?logo=playwright&logoColor=white)
-![Docker Packaged](https://img.shields.io/badge/Docker-Packaged-2496ED?logo=docker&logoColor=white)
-![Pytest](https://img.shields.io/badge/Pytest-Integration%20Tested-0A9EDC?logo=pytest&logoColor=white)
-![Scope Disciplined MVP](https://img.shields.io/badge/MVP-Honest%20Scope-6B7280)
+[![Python Backend](https://img.shields.io/badge/Python-Backend-3776AB?logo=python&logoColor=white)](./app/core/)
+[![FastAPI Wrapper](https://img.shields.io/badge/FastAPI-Thin%20Wrapper-009688?logo=fastapi&logoColor=white)](./app/api/main.py)
+[![Playwright Scaffold](https://img.shields.io/badge/Playwright-Scaffold%20Generation-2EAD33?logo=playwright&logoColor=white)](./app/core/generator.py)
+[![Docker Packaged](https://img.shields.io/badge/Docker-Packaged-2496ED?logo=docker&logoColor=white)](./Dockerfile)
+[![Pytest Integration Tested](https://img.shields.io/badge/Pytest-Integration%20Tested-0A9EDC?logo=pytest&logoColor=white)](./tests/integration/test_api.py)
+[![Honest Scope MVP](https://img.shields.io/badge/MVP-Honest%20Scope-6B7280)](./SPEC.md)
 
 ## 项目定位
 
@@ -25,23 +25,10 @@
 
 当前已经交付的内容包括：
 - CLI 主入口与可运行的核心流程
-- thin FastAPI wrapper，直接复用 Python core functions
+- thin FastAPI wrapper，直接复用 Python 核心函数
 - run history 与 artifact 查询接口
 - Docker 打包入口
 - API 集成测试
-
-## 岗位关键词对齐
-
-| JD 关键词 | 仓库内证据 |
-| --- | --- |
-| Python Backend | `app/core`, `app/api` |
-| FastAPI | `app/api/main.py` |
-| API 设计 | `GET /healthz`, `GET /api/v1/runs*`, `POST /api/v1/*` |
-| 测试自动化 | Playwright 脚手架生成 + 本地 run 流程 |
-| Docker | `Dockerfile`, `docker-compose.yml` |
-| 集成测试 | `tests/integration/test_api.py` |
-| Artifact 持久化 | `data/runs`, `generated/reports` |
-| LLM 应用 | 可选 `normalize` 步骤 |
 
 ## 核心流程
 
@@ -70,17 +57,17 @@ J --> G
 - 运行产物落盘到 `data/runs`，缺陷报告输出到 `generated/reports`。
 - Docker 启动入口已经写在 `Dockerfile` 中，容器使用 `uvicorn app.api.main:app` 启动服务。
 - API 集成测试已经覆盖 `health`、`normalize`、`generate -> run`、`run -> report`、run lookup、坏 summary 跳过和 `404` 场景。
-- API 层直接调用 Python core functions，而不是通过 shell 再调用 CLI。
+- API 层直接调用 Python 核心函数，而不是通过 shell 再调用 CLI。
 
 ## 当前范围
 
 项目仍然刻意保持为 CLI-first。
 
 当前定位：
-- honest
-- runnable
-- demoable
-- easy to explain in interviews
+- 边界诚实
+- 可运行
+- 可演示
+- 易于解释
 
 它解决的是一个窄范围的 TestOps 问题：在需要时先做 `normalize`，然后解析结构化需求、抽取测试点、生成保守的 Playwright 脚手架、运行本地脚本，并保留 artifacts 与缺陷报告草稿供后续检查。
 
@@ -161,16 +148,22 @@ playwright-testops-agent/
 ## 本地运行
 
 1. 创建并激活虚拟环境
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
 2. 安装 CLI 和 API 所需依赖：
 
 ```bash
-pip install -r requirements-core.txt
+python -m pip install -r requirements-core.txt
 ```
 
 只有在后续生成/执行相关流程时，才需要 Playwright 相关依赖：
 
 ```bash
-pip install -r requirements-e2e.txt
+python -m pip install -r requirements-e2e.txt
 ```
 
 `requirements.txt` 目前刻意保持为 core-only baseline。
@@ -201,12 +194,12 @@ python -m app.main normalize --input data/inputs/free_text_search_notes.md --pro
 
 `mock` 仍然是默认 provider。它是 deterministic 的，适合本地测试。
 
-`live` 是可选项，而且只用于 `normalize`。如果要启用 `--provider live`，需要先显式设置这些环境变量：
+`live` 是可选项，而且只用于 `normalize`。如果要启用 `--provider live`，需要先在 PowerShell 中显式设置这些环境变量：
 
-```bash
-LLM_LIVE_BASE_URL=...
-LLM_LIVE_MODEL=...
-LLM_LIVE_API_KEY=...
+```powershell
+$env:LLM_LIVE_BASE_URL="..."
+$env:LLM_LIVE_MODEL="..."
+$env:LLM_LIVE_API_KEY="..."
 ```
 
 示例：
@@ -222,21 +215,21 @@ python -m app.main normalize --input data/inputs/free_text_login_notes.md --prov
 运行完整本地测试：
 
 ```bash
-pytest -q
+python -m pytest -q
 ```
 
 只运行 API 集成测试：
 
 ```bash
-pytest tests/integration/test_api.py -q
+python -m pytest tests/integration/test_api.py -q
 ```
 
 ## API 使用
 
-本地启动 API：
+本地开发模式启动 API：
 
 ```bash
-uvicorn app.api.main:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn app.api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 健康检查：
@@ -317,7 +310,7 @@ docker compose up --build
 
 ## 边界 / 不做什么
 
-- 不是 multi-agent platform
-- 不是 production-grade orchestration system
-- 不是 queue-backed async execution service
-- 不是 database-backed testing platform
+- 不是多 Agent 平台
+- 不是生产级编排系统
+- 不是队列驱动的异步执行服务
+- 不是数据库驱动的测试平台

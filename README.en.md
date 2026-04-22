@@ -14,9 +14,9 @@ A narrow, explainable TestOps engineering prototype that turns requirement input
 ## Quick Start
 
 ```bash
-pip install -r requirements-core.txt
-pytest tests/integration/test_api.py -q
-uvicorn app.api.main:app --host 127.0.0.1 --port 8000 --reload
+python -m pip install -r requirements-core.txt
+python -m pytest tests/integration/test_api.py -q
+python -m uvicorn app.api.main:app --port 8000
 ```
 
 For the Chinese default landing page and the fuller Chinese walkthrough, see [README.md](./README.md) and [README.zh-CN.md](./README.zh-CN.md).

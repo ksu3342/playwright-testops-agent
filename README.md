@@ -14,9 +14,9 @@
 ## Quick Start / 快速开始
 
 ```bash
-pip install -r requirements-core.txt
-pytest tests/integration/test_api.py -q
-uvicorn app.api.main:app --host 127.0.0.1 --port 8000 --reload
+python -m pip install -r requirements-core.txt
+python -m pytest tests/integration/test_api.py -q
+python -m uvicorn app.api.main:app --port 8000
 ```
 
 更完整的中文说明见 [README.zh-CN.md](./README.zh-CN.md)，英文版说明见 [README.en.md](./README.en.md)。
@@ -50,9 +50,9 @@ uvicorn app.api.main:app --host 127.0.0.1 --port 8000 --reload
 
 ## 边界 / 不做什么
 
-- 它是一个 CLI-first 的工程原型，不是 production-grade platform。
+- 它是一个 CLI-first 的工程原型，不是生产级平台。
 - `normalize` 是可选步骤，而不是把整个流程都改造成 LLM 驱动系统。
-- `/api/v1/run` 仍然是同步执行，不是 queue-backed async execution service。
+- `/api/v1/run` 仍然是同步执行，不是队列驱动的异步执行服务。
 - 当前持久化仍然是文件系统，不是 Redis、MySQL 或其他数据库驱动的平台。
 - 这里没有前端、认证层、多 Agent 编排或完整测试平台的声称。
 
