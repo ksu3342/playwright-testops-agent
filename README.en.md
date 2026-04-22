@@ -2,14 +2,14 @@
 
 [简体中文](./README.md)
 
-A narrow, explainable TestOps engineering prototype that turns requirement inputs into conservative Playwright scaffolds, local run records, and draft bug reports.
+A Playwright-based test workflow project that turns requirement inputs into inspectable test scaffolds, local run records, and draft bug reports.
 
 [![Python Backend](https://img.shields.io/badge/Python-Backend-3776AB?logo=python&logoColor=white)](./app/core/)
-[![FastAPI Wrapper](https://img.shields.io/badge/FastAPI-Thin%20Wrapper-009688?logo=fastapi&logoColor=white)](./app/api/main.py)
-[![Playwright Scaffold](https://img.shields.io/badge/Playwright-Scaffold%20Generation-2EAD33?logo=playwright&logoColor=white)](./app/core/generator.py)
-[![Docker Packaged](https://img.shields.io/badge/Docker-Packaged-2496ED?logo=docker&logoColor=white)](./Dockerfile)
+[![FastAPI Routes](https://img.shields.io/badge/FastAPI-Routes-009688?logo=fastapi&logoColor=white)](./app/api/main.py)
+[![Playwright Scaffolds](https://img.shields.io/badge/Playwright-Scaffolds-2EAD33?logo=playwright&logoColor=white)](./generated/tests/)
+[![File-Backed Artifacts](https://img.shields.io/badge/File--Backed-Artifacts-4B5563)](./data/runs/)
 [![Pytest Integration Tested](https://img.shields.io/badge/Pytest-Integration%20Tested-0A9EDC?logo=pytest&logoColor=white)](./tests/integration/test_api.py)
-[![Honest Scope MVP](https://img.shields.io/badge/MVP-Honest%20Scope-6B7280)](./SPEC.md)
+[![Docker Packaged](https://img.shields.io/badge/Docker-Packaged-2496ED?logo=docker&logoColor=white)](./Dockerfile)
 
 ## Quick Start
 
@@ -19,46 +19,91 @@ python -m pytest tests/integration/test_api.py -q
 python -m uvicorn app.api.main:app --port 8000
 ```
 
-For the Chinese default landing page and the fuller Chinese walkthrough, see [README.md](./README.md) and [README.zh-CN.md](./README.zh-CN.md).
+For the fuller Chinese walkthrough, see [README.zh-CN.md](./README.zh-CN.md).
 
-## What This Repo Does
+## What Real Testing Problem This Repo Handles
 
-This repo is a `CLI-first TestOps Agent MVP + thin FastAPI wrapper`. After an optional `normalize` step, the deterministic core flow is `parse -> extract -> generate -> run -> report`. The goal is not feature breadth. The goal is to keep the workflow runnable, inspectable, and explicit about what is not implemented.
+Test inputs often start as PRDs, rough notes, or half-structured requirement text. This repo turns those inputs into three inspectable outputs: conservative Playwright scaffolds, recorded run artifacts, and draft bug reports derived from run results. The emphasis is not on platform language. The emphasis is on keeping the workflow concrete, inspectable, and easy to hand back to a human tester.
 
-## What Is Implemented
+## What Is Already Implemented
 
-- CLI entry points already cover `normalize`, `parse`, `generate`, `run`, and `report`.
-- A thin FastAPI wrapper exposes health checks, pipeline execution, run history lookup, and artifact lookup.
-- Run artifacts stay file-backed under [data/runs](./data/runs/) and generated reports stay under [generated/reports](./generated/reports/).
-- `/api/v1/run` is still synchronous and does not depend on a queue, worker, or database.
-- The repo already includes [Docker packaging](./Dockerfile) and [API integration tests](./tests/integration/test_api.py).
+- After an optional `normalize` step, the implemented flow is `parse -> extract -> generate -> run -> report`.
+- The CLI already exposes `normalize`, `parse`, `generate`, `run`, and `report`.
+- FastAPI already exposes health checks, pipeline execution, run lookup, and artifact lookup.
+- Generated scaffolds, run summaries, and report drafts are written to [generated/tests](./generated/tests/), [data/runs](./data/runs/), and [generated/reports](./generated/reports/).
+- The repo already includes [Docker packaging](./Dockerfile), [docker-compose.yml](./docker-compose.yml), and [API integration tests](./tests/integration/test_api.py).
 
-## Why It Is Designed This Way
+## One Real Example
 
-- `normalize` is optional and intentionally narrow, so LLM usage stays at the edge of the workflow.
-- The core flow remains deterministic, which makes the behavior easier to explain and verify.
-- Artifacts remain file-backed so the MVP stays easy to inspect without extra infrastructure.
-- The FastAPI layer is a thin wrapper over the same Python core functions instead of a rewritten service architecture.
+The files below are split into two separate evidence paths. They are not one continuous end-to-end run. Together they show both "PRD -> generated scaffold -> blocked run" and "failure-path run -> bug report draft".
+
+### Example A: PRD -> generated scaffold -> blocked run
+
+1. Input PRD: [data/inputs/sample_prd_login.md](./data/inputs/sample_prd_login.md)
+
+```md
+## Feature Name
+User Login
+
+## Page URL
+/login
+```
+
+2. Generated scaffold: [generated/tests/test_login_generated.py](./generated/tests/test_login_generated.py)
+
+```python
+# Generated from: Login Page PRD
+target_url = BASE_URL.rstrip("/") + "/login"
+page.goto(target_url)
+# TODO: Locate the relevant input selector before implementing...
+```
+
+3. Honest run gating for the generated scaffold: [data/runs/20260422T143848670135Z_test_login_generated/summary.json](./data/runs/20260422T143848670135Z_test_login_generated/summary.json)
+
+```json
+"status": "blocked",
+"reason": "Script contains incomplete implementation markers (TODO) and is not ready for honest execution."
+```
+
+### Example B: separate failure-path run -> bug report draft
+
+This step switches to a different evidence path. It does not continue the `sample_prd_login.md` / `test_login_generated.py` chain above.
+
+1. Recorded failure run: [summary.json](./data/runs/20260422T143848683010Z_runner_fail_case/summary.json)
+
+2. Matching report draft: [bug report draft](./generated/reports/bug_report_20260422T143848683010Z_runner_fail_case.md)
+
+```text
+status: failed
+FAILED tests/assets/runner_fail_case.py::test_minimal_fail_case - assert 1 == 2
+```
 
 ## Engineering Evidence
 
 - [app/core/](./app/core/) contains the parser, extractor, generator, runner, reporter, and normalizer modules.
 - [app/api/main.py](./app/api/main.py) defines `/healthz`, `/api/v1/*`, run lookup, and artifact lookup routes.
 - [tests/integration/test_api.py](./tests/integration/test_api.py) covers health, normalize, generate -> run, run -> report, run lookup, invalid summary skipping, and `404` cases.
+- [data/runs](./data/runs/) and [generated/reports](./generated/reports/) are real artifact directories in the repo.
 - [Dockerfile](./Dockerfile) uses `uvicorn app.api.main:app` as the service entrypoint, and [docker-compose.yml](./docker-compose.yml) provides a local container run path.
-- [data/runs](./data/runs/) and [generated/reports](./generated/reports/) are real artifact locations in the repo.
+
+## Why It Is Designed This Way
+
+- The current implementation remains CLI-first, and the FastAPI layer is only a light wrapper over the same Python core functions.
+- `normalize` is intentionally optional and remains the only LLM-assisted step.
+- The deterministic core flow stays `parse -> extract -> generate -> run -> report`, which keeps behavior easier to inspect and explain.
+- Artifacts remain file-backed so run history and reports can be checked directly from the repository workspace.
+- `/api/v1/run` remains synchronous so run state and recorded outputs stay explicit.
 
 ## Boundaries / Non-goals
 
-- This is a CLI-first engineering prototype, not a production-grade platform.
-- `normalize` is optional and is the only LLM-assisted step.
-- `/api/v1/run` remains synchronous, not a queue-backed async execution service.
-- Persistence is file-backed, not Redis-backed, MySQL-backed, or otherwise database-backed.
-- No frontend, authentication layer, or multi-agent platform is claimed here.
+- The current implementation remains a `CLI-first TestOps Agent MVP + thin FastAPI wrapper`.
+- Persistence is still file-backed, not Redis-backed, MySQL-backed, or otherwise database-backed.
+- No frontend, authentication layer, multi-agent system, or full testing platform is claimed here.
+- This is not a queue-backed async execution system or a production-grade platform.
 
 ## Further Reading
 
-- Chinese default landing page: [README.md](./README.md)
+- Chinese landing page: [README.md](./README.md)
 - Fuller Chinese walkthrough: [README.zh-CN.md](./README.zh-CN.md)
 - Technical spec: [SPEC.md](./SPEC.md)
 - Historical roadmap: [TASKS.md](./TASKS.md)

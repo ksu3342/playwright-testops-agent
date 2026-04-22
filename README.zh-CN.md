@@ -2,33 +2,87 @@
 
 [English](./README.en.md) | [默认首页](./README.md)
 
-面向测试工程场景的 AI 应用原型：将需求输入收口为测试脚手架、运行记录与缺陷报告草稿。
+一个面向真实测试流程的 Playwright 工作流项目：把需求说明收口为可检查的测试脚手架、本地运行记录和缺陷报告草稿。
 
 [![Python Backend](https://img.shields.io/badge/Python-Backend-3776AB?logo=python&logoColor=white)](./app/core/)
-[![FastAPI Wrapper](https://img.shields.io/badge/FastAPI-Thin%20Wrapper-009688?logo=fastapi&logoColor=white)](./app/api/main.py)
-[![Playwright Scaffold](https://img.shields.io/badge/Playwright-Scaffold%20Generation-2EAD33?logo=playwright&logoColor=white)](./app/core/generator.py)
+[![FastAPI Routes](https://img.shields.io/badge/FastAPI-Routes-009688?logo=fastapi&logoColor=white)](./app/api/main.py)
+[![Playwright Scaffolds](https://img.shields.io/badge/Playwright-Scaffolds-2EAD33?logo=playwright&logoColor=white)](./generated/tests/)
+[![File-Backed Artifacts](https://img.shields.io/badge/File--Backed-Artifacts-4B5563)](./data/runs/)
 [![Docker Packaged](https://img.shields.io/badge/Docker-Packaged-2496ED?logo=docker&logoColor=white)](./Dockerfile)
 [![Pytest Integration Tested](https://img.shields.io/badge/Pytest-Integration%20Tested-0A9EDC?logo=pytest&logoColor=white)](./tests/integration/test_api.py)
-[![Honest Scope MVP](https://img.shields.io/badge/MVP-Honest%20Scope-6B7280)](./SPEC.md)
 
-## 项目定位
+## 这个项目解决什么真实测试问题
 
-- 这是一个 `CLI-first TestOps Agent MVP + thin FastAPI wrapper`
-- 可选的 `normalize` 步骤发生在确定性主流程之前
+真实测试流程里的输入往往来自 PRD、自由文本笔记或半结构化需求说明。这个仓库把这些输入收口成三类可检查产物：保守的 Playwright 测试脚手架、可追溯的运行产物，以及基于运行结果生成的缺陷报告草稿。重点不是堆平台概念，而是让每一步都有文件证据、状态诚实、便于人工接手。
+
+## 当前已经做成什么
+
+- 可选 `normalize` 之后，主流程已经能走通 `parse -> extract -> generate -> run -> report`。
+- CLI 主入口已经覆盖 `normalize`、`parse`、`generate`、`run`、`report`。
+- 轻量 FastAPI 包装层直接复用 Python 核心函数，提供 health、流程执行、run 查询与 artifact 查询接口。
+- 生成脚手架、运行摘要与报告草稿都会直接落盘到 `generated/tests`、`data/runs` 和 `generated/reports`。
+- 仓库里已经有 Docker 打包入口、compose 配置和 API 集成测试。
+
+## 一个真实样例
+
+下面用两条独立证据链展示当前仓库里的真实输出。它们不是同一条连续的 end-to-end run，而是分别证明“PRD -> 脚手架生成 -> blocked run”与“failure-path run -> bug report draft”这两段行为。
+
+### 样例 A：PRD -> generated scaffold -> blocked run
+
+1. 输入 PRD：[data/inputs/sample_prd_login.md](./data/inputs/sample_prd_login.md)
+
+```md
+## Feature Name
+User Login
+
+## Page URL
+/login
+```
+
+2. 生成脚手架：[generated/tests/test_login_generated.py](./generated/tests/test_login_generated.py)
+
+```python
+# Generated from: Login Page PRD
+target_url = BASE_URL.rstrip("/") + "/login"
+page.goto(target_url)
+# TODO: Locate the relevant input selector before implementing...
+```
+
+3. 对生成脚手架的诚实运行状态：[data/runs/20260422T143848670135Z_test_login_generated/summary.json](./data/runs/20260422T143848670135Z_test_login_generated/summary.json)
+
+```json
+"status": "blocked",
+"reason": "Script contains incomplete implementation markers (TODO) and is not ready for honest execution."
+```
+
+### 样例 B：独立 failure-path run -> bug report draft
+
+这一步已经切换到另一条独立证据链，不再沿用上面的 `sample_prd_login.md` / `test_login_generated.py` 链路。
+
+1. 失败 run 的记录：[summary.json](./data/runs/20260422T143848683010Z_runner_fail_case/summary.json)
+
+2. 对应的报告草稿：[bug report draft](./generated/reports/bug_report_20260422T143848683010Z_runner_fail_case.md)
+
+```text
+status: failed
+FAILED tests/assets/runner_fail_case.py::test_minimal_fail_case - assert 1 == 2
+```
+
+## 工程证据
+
+- FastAPI 路由已经存在于 `app/api/main.py`，包括 health、pipeline execution、run 查询与 artifact 查询。
+- 运行产物落盘到 `data/runs`，缺陷报告输出到 `generated/reports`。
+- Docker 启动入口已经写在 `Dockerfile` 中，容器使用 `uvicorn app.api.main:app` 启动服务。
+- API 集成测试已经覆盖 `health`、`normalize`、`generate -> run`、`run -> report`、run lookup、坏 summary 跳过和 `404` 场景。
+- API 层直接调用 Python 核心函数，而不是通过 shell 再调用 CLI。
+
+## 项目定位与当前范围
+
+- 当前实现仍然是 `CLI-first TestOps Agent MVP + thin FastAPI wrapper`
+- 可选的 `normalize` 步骤发生在确定性主流程之前，也是当前唯一的 LLM 辅助步骤
 - 确定性主流程是：`parse -> extract -> generate -> run -> report`
-- 当前 artifacts 与报告持久化仍然使用文件系统：`data/runs`、`generated/reports`
+- 当前运行产物与报告持久化仍然使用文件系统：`data/runs`、`generated/reports`
 - `/api/v1/run` 仍然是同步执行，不是队列或 worker 驱动的异步任务平台
-
-## 项目摘要
-
-这个仓库聚焦一个收口明确的 TestOps 问题：把需求输入整理成保守的 Playwright 测试脚手架、本地运行记录和缺陷报告草稿，同时保证产物可检查、状态诚实、边界清楚。
-
-当前已经交付的内容包括：
-- CLI 主入口与可运行的核心流程
-- thin FastAPI wrapper，直接复用 Python 核心函数
-- run history 与 artifact 查询接口
-- Docker 打包入口
-- API 集成测试
 
 ## 核心流程
 
@@ -50,43 +104,6 @@ J --> E
 J --> F
 J --> G
 ```
-
-## 工程证据
-
-- FastAPI 路由已经存在于 `app/api/main.py`，包括 health、pipeline execution、run 查询与 artifact 查询。
-- 运行产物落盘到 `data/runs`，缺陷报告输出到 `generated/reports`。
-- Docker 启动入口已经写在 `Dockerfile` 中，容器使用 `uvicorn app.api.main:app` 启动服务。
-- API 集成测试已经覆盖 `health`、`normalize`、`generate -> run`、`run -> report`、run lookup、坏 summary 跳过和 `404` 场景。
-- API 层直接调用 Python 核心函数，而不是通过 shell 再调用 CLI。
-
-## 当前范围
-
-项目仍然刻意保持为 CLI-first。
-
-当前定位：
-- 边界诚实
-- 可运行
-- 可演示
-- 易于解释
-
-它解决的是一个窄范围的 TestOps 问题：在需要时先做 `normalize`，然后解析结构化需求、抽取测试点、生成保守的 Playwright 脚手架、运行本地脚本，并保留 artifacts 与缺陷报告草稿供后续检查。
-
-当前已经有的交付物包括：
-- 生成的 Playwright 测试脚手架
-- `data/runs` 下的运行摘要和 artifact 文件
-- `generated/reports` 下的 bug report markdown
-- 用于流程执行与 run/artifact 查询的 HTTP API
-
-可选的 `normalize` 步骤发生在确定性核心流程之前。
-
-当前确定性主流程是：
-- `parse`
-- `extract`
-- `generate`
-- `run`
-- `report`
-
-`normalize` 是当前唯一的 LLM-assisted step，它的作用是把自由文本需求整理为后续解析流程可以接受的 PRD markdown。
 
 ## 当前 API 能力
 
@@ -110,7 +127,7 @@ API 目前不声称什么：
 - 不包含认证
 - 不包含数据库状态
 - 不包含队列、worker 或异步任务调度
-- 不把这个 MVP 包装成生产级测试平台
+- 不把当前实现包装成生产级测试平台
 
 ## 项目结构
 
