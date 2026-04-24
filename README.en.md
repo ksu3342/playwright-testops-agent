@@ -6,8 +6,8 @@ A Playwright-based test workflow project that turns requirement inputs into insp
 
 [![Python Backend](https://img.shields.io/badge/Python-Backend-3776AB?logo=python&logoColor=white)](./app/core/)
 [![FastAPI Routes](https://img.shields.io/badge/FastAPI-Routes-009688?logo=fastapi&logoColor=white)](./app/api/main.py)
-[![Playwright Scaffolds](https://img.shields.io/badge/Playwright-Scaffolds-2EAD33?logo=playwright&logoColor=white)](./generated/tests/)
-[![File-Backed Artifacts](https://img.shields.io/badge/File--Backed-Artifacts-4B5563)](./data/runs/)
+[![Playwright Scaffolds](https://img.shields.io/badge/Playwright-Scaffolds-2EAD33?logo=playwright&logoColor=white)](./app/core/generator.py)
+[![File-Backed Artifacts](https://img.shields.io/badge/File--Backed-Artifacts-4B5563)](./app/core/runner.py)
 [![Pytest Integration Tested](https://img.shields.io/badge/Pytest-Integration%20Tested-0A9EDC?logo=pytest&logoColor=white)](./tests/integration/test_api.py)
 [![Docker Packaged](https://img.shields.io/badge/Docker-Packaged-2496ED?logo=docker&logoColor=white)](./Dockerfile)
 
@@ -30,14 +30,14 @@ Test inputs often start as PRDs, rough notes, or half-structured requirement tex
 - After an optional `normalize` step, the implemented flow is `parse -> extract -> generate -> run -> report`.
 - The CLI already exposes `normalize`, `parse`, `generate`, `run`, and `report`.
 - FastAPI already exposes health checks, pipeline execution, run lookup, and artifact lookup.
-- Generated scaffolds, run summaries, and report drafts are written to [generated/tests](./generated/tests/), [data/runs](./data/runs/), and [generated/reports](./generated/reports/).
+- Generated scaffolds, run summaries, and report drafts are written to `generated/tests/`, `data/runs/`, and `generated/reports/` at runtime. Those outputs are reproducible locally but are not committed as fixed public samples.
 - The repo already includes [Docker packaging](./Dockerfile), [docker-compose.yml](./docker-compose.yml), and [API integration tests](./tests/integration/test_api.py).
 
 ## One Real Example
 
-The files below are split into two separate evidence paths. They are not one continuous end-to-end run. Together they show both "PRD -> generated scaffold -> blocked run" and "failure-path run -> bug report draft".
+The example below is command-driven on purpose. Public README links point to tracked source files, tests, contracts, and input PRDs. The generated outputs under `generated/tests/`, `data/runs/`, and `generated/reports/` are runtime artifacts that you produce locally.
 
-### Example A: PRD -> generated scaffold -> blocked run
+### Example A: PRD -> generated login test -> local run
 
 1. Input PRD: [data/inputs/sample_prd_login.md](./data/inputs/sample_prd_login.md)
 
@@ -49,42 +49,40 @@ User Login
 /login
 ```
 
-2. Generated scaffold: [generated/tests/test_login_generated.py](./generated/tests/test_login_generated.py)
+2. Stable implementation evidence: [app/core/generator.py](./app/core/generator.py), [app/core/selector_contract.py](./app/core/selector_contract.py), [data/contracts/demo_app_selectors.json](./data/contracts/demo_app_selectors.json), [data/contracts/demo_app_test_data.json](./data/contracts/demo_app_test_data.json), and [tests/unit/test_generator.py](./tests/unit/test_generator.py)
 
-```python
-# Generated from: Login Page PRD
-target_url = BASE_URL.rstrip("/") + "/login"
-page.goto(target_url)
-# TODO: Locate the relevant input selector before implementing...
+3. Reproduce the generated login test locally:
+
+```powershell
+python -m app.main generate --input data/inputs/sample_prd_login.md
+python -m pytest generated/tests/test_login_generated.py -q
+python -m app.main run generated/tests/test_login_generated.py
 ```
 
-3. Honest run gating for the generated scaffold: [data/runs/20260422T143848670135Z_test_login_generated/summary.json](./data/runs/20260422T143848670135Z_test_login_generated/summary.json)
+The generated script and run directory are runtime outputs. They are intentionally not committed as fixed sample files in the public repository.
 
-```json
-"status": "blocked",
-"reason": "Script contains incomplete implementation markers (TODO) and is not ready for honest execution."
+### Example B: separate failure-path run -> report draft
+
+This step uses a different evidence path. It does not continue the `sample_prd_login.md` login-generation flow above.
+
+1. Stable failure-path evidence: [tests/assets/runner_fail_case.py](./tests/assets/runner_fail_case.py), [app/core/runner.py](./app/core/runner.py), [tests/integration/test_pipeline.py](./tests/integration/test_pipeline.py), and [tests/integration/test_api.py](./tests/integration/test_api.py)
+
+2. Reproduce the failure-path run and report locally:
+
+```powershell
+python -m app.main run --input tests/assets/runner_fail_case.py
+python -m app.main report --input data/runs/<run_id>
 ```
 
-### Example B: separate failure-path run -> bug report draft
-
-This step switches to a different evidence path. It does not continue the `sample_prd_login.md` / `test_login_generated.py` chain above.
-
-1. Recorded failure run: [summary.json](./data/runs/20260422T143848683010Z_runner_fail_case/summary.json)
-
-2. Matching report draft: [bug report draft](./generated/reports/bug_report_20260422T143848683010Z_runner_fail_case.md)
-
-```text
-status: failed
-FAILED tests/assets/runner_fail_case.py::test_minimal_fail_case - assert 1 == 2
-```
+The report path under `generated/reports/` is also a runtime output, not a fixed public sample file.
 
 ## Engineering Evidence
 
-- [app/core/](./app/core/) contains the parser, extractor, generator, runner, reporter, and normalizer modules.
-- [app/api/main.py](./app/api/main.py) defines `/healthz`, `/api/v1/*`, run lookup, and artifact lookup routes.
-- [tests/integration/test_api.py](./tests/integration/test_api.py) covers health, normalize, generate -> run, run -> report, run lookup, invalid summary skipping, and `404` cases.
-- [data/runs](./data/runs/) and [generated/reports](./generated/reports/) are real artifact directories in the repo.
-- [Dockerfile](./Dockerfile) uses `uvicorn app.api.main:app` as the service entrypoint, and [docker-compose.yml](./docker-compose.yml) provides a local container run path.
+- [app/core/generator.py](./app/core/generator.py), [app/core/runner.py](./app/core/runner.py), and [app/core/selector_contract.py](./app/core/selector_contract.py) implement generation, run classification, and deterministic selector loading.
+- [data/contracts/demo_app_selectors.json](./data/contracts/demo_app_selectors.json) and [data/contracts/demo_app_test_data.json](./data/contracts/demo_app_test_data.json) keep selector and fixture sources file-backed.
+- [demo_app/main.py](./demo_app/main.py) is the local demo target used by the executable login flow.
+- [tests/unit/test_generator.py](./tests/unit/test_generator.py), [tests/unit/test_runner.py](./tests/unit/test_runner.py), and [tests/demo/test_demo_app.py](./tests/demo/test_demo_app.py) verify generator, runner, and demo behavior.
+- [tests/integration/test_api.py](./tests/integration/test_api.py) and [tests/integration/test_pipeline.py](./tests/integration/test_pipeline.py) cover the API-facing and pipeline-facing integration paths.
 
 ## Why It Is Designed This Way
 
