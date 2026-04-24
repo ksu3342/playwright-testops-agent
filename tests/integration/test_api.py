@@ -46,6 +46,35 @@ def test_normalize_endpoint_accepts_inline_content() -> None:
 
 
 def test_generate_then_run_endpoint_preserves_blocked_status() -> None:
+    source_content = Path("data/inputs/sample_prd_search.md").read_text(encoding="utf-8")
+
+    generate_response = client.post(
+        "/api/v1/generate",
+        json={
+            "content": source_content,
+            "filename": "sample_prd_search.md",
+        },
+    )
+    generate_payload = generate_response.json()
+
+    assert generate_response.status_code == 200
+    assert len(generate_payload["test_points"]) == 2
+    script_content = Path(generate_payload["script_path"]).read_text(encoding="utf-8")
+    assert '# selector-contract: search.input -> search-input' in script_content
+    assert "Locate the relevant input selector" not in script_content
+
+    run_response = client.post(
+        "/api/v1/run",
+        json={"input_path": generate_payload["script_path"]},
+    )
+    run_payload = run_response.json()
+
+    assert run_response.status_code == 200
+    assert run_payload["status"] == "blocked"
+    assert "incomplete" in run_payload["reason"].lower()
+
+
+def test_generate_then_run_endpoint_passes_executable_login_script() -> None:
     source_content = Path("data/inputs/sample_prd_login.md").read_text(encoding="utf-8")
 
     generate_response = client.post(
@@ -61,7 +90,10 @@ def test_generate_then_run_endpoint_preserves_blocked_status() -> None:
     assert len(generate_payload["test_points"]) == 1
     script_content = Path(generate_payload["script_path"]).read_text(encoding="utf-8")
     assert '# selector-contract: login.email_input -> login-email-input' in script_content
-    assert "Locate the relevant input selector" not in script_content
+    assert '# test-fixture: login.valid_email -> demo@example.com' in script_content
+    assert "DEMO_APP_PORT" in script_content
+    assert "REUSE_EXISTING_DEMO_SERVER" in script_content
+    assert "TODO" not in script_content
 
     run_response = client.post(
         "/api/v1/run",
@@ -70,8 +102,7 @@ def test_generate_then_run_endpoint_preserves_blocked_status() -> None:
     run_payload = run_response.json()
 
     assert run_response.status_code == 200
-    assert run_payload["status"] == "blocked"
-    assert "incomplete" in run_payload["reason"].lower()
+    assert run_payload["status"] == "passed"
 
 
 def test_run_then_report_endpoint_generates_bug_report_for_failed_run() -> None:

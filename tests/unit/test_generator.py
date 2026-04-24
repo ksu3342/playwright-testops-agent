@@ -17,6 +17,10 @@ def test_login_input_generates_script_under_generated_tests() -> None:
     assert "TP-001" in content
     assert "User Login happy path works as described" in content
     assert "page.goto" in content
+    assert "sync_playwright" in content
+    assert "DEMO_APP_PORT" in content
+    assert "REUSE_EXISTING_DEMO_SERVER" in content
+    assert "pytest-playwright" not in content
     assert '# selector-contract: login.email_input -> login-email-input' in content
     assert 'login_email_input = page.get_by_test_id("login-email-input")' in content
     assert '# selector-contract: login.password_input -> login-password-input' in content
@@ -25,8 +29,18 @@ def test_login_input_generates_script_under_generated_tests() -> None:
     assert 'login_submit_button = page.get_by_test_id("login-submit-button")' in content
     assert '# selector-contract: dashboard.heading -> dashboard-heading' in content
     assert '# selector-contract: login.inline_error -> login-inline-error' in content
+    assert '# test-fixture: login.valid_email -> demo@example.com' in content
+    assert "valid_email = 'demo@example.com'" in content
+    assert '# test-fixture: login.valid_password -> password123' in content
+    assert "valid_password = 'password123'" in content
+    assert 'owned_base_url = f"http://{DEFAULT_DEMO_HOST}:{demo_port}"' in content
+    assert 'server_env["DEMO_APP_PORT"] = str(demo_port)' in content
+    assert 'REUSE_EXISTING_DEMO_SERVER = os.getenv("REUSE_EXISTING_DEMO_SERVER", "0") == "1"' in content
     assert "Locate the relevant input selector" not in content
     assert "Locate the relevant button selector" not in content
+    assert "TODO" not in content
+    assert "<VALID_EMAIL>" not in content
+    assert "<VALID_PASSWORD>" not in content
     assert "#email" not in content
     assert "#password" not in content
     assert "SELECTOR_CONTRACT_MISSING" not in content
@@ -51,6 +65,7 @@ def test_search_input_generates_script_without_invented_selectors() -> None:
     assert '# selector-contract: search.empty_state -> search-empty-state' in content
     assert "Locate the relevant input selector" not in content
     assert "Locate the relevant button selector" not in content
+    assert "TODO" in content
     assert "#email" not in content
     assert "#password" not in content
     assert "#login-button" not in content

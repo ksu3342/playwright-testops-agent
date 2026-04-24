@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+import demo_app.main as demo_main
 from demo_app.main import DEMO_EMAIL, DEMO_PASSWORD, app
 
 
@@ -59,3 +60,25 @@ def test_search_with_no_hit_returns_empty_state() -> None:
     assert 'data-testid="search-empty-state"' in response.text
     assert "No results matched your query." in response.text
     assert 'data-testid="search-results-list"' not in response.text
+
+
+def test_demo_app_main_reads_port_from_environment(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(app_path: str, host: str, port: int, reload: bool) -> None:
+        captured["app_path"] = app_path
+        captured["host"] = host
+        captured["port"] = port
+        captured["reload"] = reload
+
+    monkeypatch.setenv("DEMO_APP_PORT", "34567")
+    monkeypatch.setattr(demo_main.uvicorn, "run", fake_run)
+
+    demo_main.main()
+
+    assert captured == {
+        "app_path": "demo_app.main:app",
+        "host": "127.0.0.1",
+        "port": 34567,
+        "reload": False,
+    }

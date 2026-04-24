@@ -1,3 +1,4 @@
+import os
 from html import escape
 from typing import Iterable, Optional
 from urllib.parse import parse_qs
@@ -234,7 +235,8 @@ async def get_search(q: str = Query(default="")) -> HTMLResponse:
 
 
 def main() -> None:
-    uvicorn.run("demo_app.main:app", host="127.0.0.1", port=3000, reload=False)
+    port = int(os.getenv("DEMO_APP_PORT", "3000"))
+    uvicorn.run("demo_app.main:app", host="127.0.0.1", port=port, reload=False)
 
 
 if __name__ == "__main__":

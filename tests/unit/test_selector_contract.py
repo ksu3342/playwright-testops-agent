@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from app.core import generator as generator_module
 from app.core.selector_contract import (
     DEFAULT_SELECTOR_CONTRACT_PATH,
     SelectorContract,
@@ -40,3 +41,18 @@ def test_selector_contract_file_contains_required_demo_app_keys() -> None:
     assert contract.get("search.results_list") is not None
     assert contract.get("search.result_item") is not None
     assert contract.get("search.empty_state") is not None
+
+
+def test_login_test_data_contract_loads_expected_demo_credentials() -> None:
+    contract = generator_module.load_test_data_contract()
+
+    assert isinstance(contract, generator_module.TestDataContract)
+    email_fixture = contract.get("login.valid_email")
+    password_fixture = contract.get("login.valid_password")
+
+    assert isinstance(email_fixture, generator_module.TestDataDefinition)
+    assert isinstance(password_fixture, generator_module.TestDataDefinition)
+    assert email_fixture is not None
+    assert password_fixture is not None
+    assert email_fixture.value == "demo@example.com"
+    assert password_fixture.value == "password123"

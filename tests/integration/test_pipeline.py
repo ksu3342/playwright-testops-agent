@@ -166,6 +166,15 @@ def test_cli_generate_command_supports_positional_input() -> None:
     content = Path("generated/tests/test_login_generated.py").read_text(encoding="utf-8")
     assert '# selector-contract: login.email_input -> login-email-input' in content
     assert '# selector-contract: dashboard.heading -> dashboard-heading' in content
+    assert '# test-fixture: login.valid_email -> demo@example.com' in content
+    assert '# test-fixture: login.valid_password -> password123' in content
+    assert "DEMO_APP_PORT" in content
+    assert "REUSE_EXISTING_DEMO_SERVER" in content
+    assert "TODO" not in content
+    assert "<VALID_EMAIL>" not in content
+    assert "<VALID_PASSWORD>" not in content
+    assert "pytest-playwright" not in content
+    assert "sync_playwright" in content
     assert "Locate the relevant button selector" not in content
 
 
@@ -180,8 +189,31 @@ def test_cli_run_command_reports_passed_status_for_local_asset() -> None:
     assert "Run directory: data/runs/" in result.stdout
 
 
-def test_cli_run_command_reports_blocked_status_for_generated_scaffold() -> None:
+def test_cli_run_command_reports_passed_status_for_generated_login_script() -> None:
     document = parse_prd("data/inputs/sample_prd_login.md")
+    test_points = extract_test_points(document)
+    script_path = generate_test_script(document, test_points)
+
+    first_result = subprocess.run(
+        [sys.executable, "-m", "app.main", "run", str(script_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    second_result = subprocess.run(
+        [sys.executable, "-m", "app.main", "run", str(script_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "Run status: passed" in first_result.stdout
+    assert "Target script: generated/tests/test_login_generated.py" in first_result.stdout
+    assert "Run status: passed" in second_result.stdout
+    assert "Target script: generated/tests/test_login_generated.py" in second_result.stdout
+
+
+def test_cli_run_command_reports_blocked_status_for_generated_scaffold() -> None:
+    document = parse_prd("data/inputs/sample_prd_search.md")
     test_points = extract_test_points(document)
     script_path = generate_test_script(document, test_points)
 
@@ -210,7 +242,7 @@ def test_cli_report_command_generates_report_for_failed_run() -> None:
 
 
 def test_cli_report_command_skips_blocked_run() -> None:
-    document = parse_prd("data/inputs/sample_prd_login.md")
+    document = parse_prd("data/inputs/sample_prd_search.md")
     test_points = extract_test_points(document)
     script_path = generate_test_script(document, test_points)
     run_result = run_test_script(str(script_path))

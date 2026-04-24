@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "app": "demo_app",
+  "fixtures": {
+    "login.valid_email": {
+      "semantic_key": "login.valid_email",
+      "value": "demo@example.com"
+    },
+    "login.valid_password": {
+      "semantic_key": "login.valid_password",
+      "value": "password123"
+    }
+  }
+}
