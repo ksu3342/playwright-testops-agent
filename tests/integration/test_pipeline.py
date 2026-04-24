@@ -147,6 +147,10 @@ def test_cli_generate_command_prints_summary_and_generated_path() -> None:
     assert "TP-001 [happy_path]" in result.stdout
     assert "TP-002 [negative_path]" in result.stdout
     assert "generated/tests/test_search_generated.py" in result.stdout
+    content = Path("generated/tests/test_search_generated.py").read_text(encoding="utf-8")
+    assert '# selector-contract: search.input -> search-input' in content
+    assert '# selector-contract: search.empty_state -> search-empty-state' in content
+    assert "Locate the relevant input selector" not in content
 
 
 def test_cli_generate_command_supports_positional_input() -> None:
@@ -159,6 +163,10 @@ def test_cli_generate_command_supports_positional_input() -> None:
     assert "Extracted 1 test point(s):" in result.stdout
     assert "generated/tests/test_login_generated.py" in result.stdout
     assert Path("generated/tests/test_login_generated.py").exists()
+    content = Path("generated/tests/test_login_generated.py").read_text(encoding="utf-8")
+    assert '# selector-contract: login.email_input -> login-email-input' in content
+    assert '# selector-contract: dashboard.heading -> dashboard-heading' in content
+    assert "Locate the relevant button selector" not in content
 
 
 def test_cli_run_command_reports_passed_status_for_local_asset() -> None:

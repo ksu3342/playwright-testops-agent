@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "app": "demo_app",
+  "base_url": "http://localhost:3000",
+  "selectors": {
+    "login.email_input": {
+      "semantic_key": "login.email_input",
+      "strategy": "test_id",
+      "value": "login-email-input",
+      "playwright": "page.get_by_test_id(\"login-email-input\")"
+    },
+    "login.password_input": {
+      "semantic_key": "login.password_input",
+      "strategy": "test_id",
+      "value": "login-password-input",
+      "playwright": "page.get_by_test_id(\"login-password-input\")"
+    },
+    "login.submit_button": {
+      "semantic_key": "login.submit_button",
+      "strategy": "test_id",
+      "value": "login-submit-button",
+      "playwright": "page.get_by_test_id(\"login-submit-button\")"
+    },
+    "login.inline_error": {
+      "semantic_key": "login.inline_error",
+      "strategy": "test_id",
+      "value": "login-inline-error",
+      "playwright": "page.get_by_test_id(\"login-inline-error\")"
+    },
+    "dashboard.heading": {
+      "semantic_key": "dashboard.heading",
+      "strategy": "test_id",
+      "value": "dashboard-heading",
+      "playwright": "page.get_by_test_id(\"dashboard-heading\")"
+    },
+    "dashboard.search_link": {
+      "semantic_key": "dashboard.search_link",
+      "strategy": "test_id",
+      "value": "dashboard-search-link",
+      "playwright": "page.get_by_test_id(\"dashboard-search-link\")"
+    },
+    "search.input": {
+      "semantic_key": "search.input",
+      "strategy": "test_id",
+      "value": "search-input",
+      "playwright": "page.get_by_test_id(\"search-input\")"
+    },
+    "search.submit_button": {
+      "semantic_key": "search.submit_button",
+      "strategy": "test_id",
+      "value": "search-submit-button",
+      "playwright": "page.get_by_test_id(\"search-submit-button\")"
+    },
+    "search.results_list": {
+      "semantic_key": "search.results_list",
+      "strategy": "test_id",
+      "value": "search-results-list",
+      "playwright": "page.get_by_test_id(\"search-results-list\")"
+    },
+    "search.result_item": {
+      "semantic_key": "search.result_item",
+      "strategy": "test_id",
+      "value": "search-result-item",
+      "playwright": "page.get_by_test_id(\"search-result-item\")"
+    },
+    "search.empty_state": {
+      "semantic_key": "search.empty_state",
+      "strategy": "test_id",
+      "value": "search-empty-state",
+      "playwright": "page.get_by_test_id(\"search-empty-state\")"
+    }
+  }
+}

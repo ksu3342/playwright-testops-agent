@@ -10,7 +10,7 @@ BASE_URL = os.getenv("BASE_URL", "http://localhost:3000")
 # Feature: {{ feature_name }}
 # Page URL: {{ page_url }}
 # This scaffold is intentionally conservative.
-# Missing selectors and unsupported assertions remain TODO comments on purpose.
+# Unsupported assertions and placeholder data remain TODO comments on purpose.
 
 {% for case in test_cases %}
 def {{ case.function_name }}(page: Page) -> None:
@@ -36,8 +36,8 @@ def {{ case.function_name }}(page: Page) -> None:
 {% endif %}
 
     # Steps translated conservatively from the PRD:
-{% if case.step_todos %}
-{% for item in case.step_todos %}
+{% if case.step_lines %}
+{% for item in case.step_lines %}
     {{ item }}
 {% endfor %}
 {% else %}
@@ -46,7 +46,7 @@ def {{ case.function_name }}(page: Page) -> None:
 
     # Expected result from PRD:
     # {{ case.expected_result }}
-{% for item in case.assertion_todos %}
+{% for item in case.assertion_lines %}
     {{ item }}
 {% endfor %}
 

@@ -59,6 +59,9 @@ def test_generate_then_run_endpoint_preserves_blocked_status() -> None:
 
     assert generate_response.status_code == 200
     assert len(generate_payload["test_points"]) == 1
+    script_content = Path(generate_payload["script_path"]).read_text(encoding="utf-8")
+    assert '# selector-contract: login.email_input -> login-email-input' in script_content
+    assert "Locate the relevant input selector" not in script_content
 
     run_response = client.post(
         "/api/v1/run",

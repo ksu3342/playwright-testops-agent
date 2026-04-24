@@ -53,6 +53,26 @@ def test_runner_marks_generated_scaffold_as_blocked() -> None:
     assert summary["execution_readiness"] == "blocked_by_incomplete_markers"
 
 
+def test_runner_prioritizes_selector_contract_missing_marker(tmp_path: Path) -> None:
+    document = parse_prd("data/inputs/sample_prd_login.md")
+    test_points = extract_test_points(document)
+    contract_payload = json.loads(Path("data/contracts/demo_app_selectors.json").read_text(encoding="utf-8"))
+    del contract_payload["selectors"]["login.email_input"]
+    contract_path = tmp_path / "demo_app_selectors.json"
+    contract_path.write_text(json.dumps(contract_payload, indent=2), encoding="utf-8")
+    script_path = generate_test_script(document, test_points, selector_contract_path=contract_path)
+
+    result = run_test_script(str(script_path))
+
+    assert result["status"] == "blocked"
+    assert "selector contract" in result["reason"].lower()
+    assert "login.email_input" in result["reason"]
+
+    summary = _load_summary(result["artifact_paths"]["summary"])
+    assert summary["status"] == "blocked"
+    assert summary["execution_readiness"] == "blocked_by_selector_contract"
+
+
 def test_runner_reports_environment_error_for_missing_target_script() -> None:
     result = run_test_script("tests/assets/does_not_exist.py")
 

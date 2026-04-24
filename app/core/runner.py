@@ -1,3 +1,4 @@
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -5,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.core.collector import REPO_ROOT, create_run_directory, collect_run_artifacts
+from app.core.selector_contract import SELECTOR_CONTRACT_MISSING_MARKER
 
 
 INCOMPLETE_MARKERS = [
@@ -20,6 +22,9 @@ ENVIRONMENT_ERROR_MARKERS = [
     "fixture 'page' not found",
     "playwright",
 ]
+SELECTOR_CONTRACT_MISSING_PATTERN = re.compile(
+    rf"{re.escape(SELECTOR_CONTRACT_MISSING_MARKER)}:\s*([A-Za-z0-9_.-]+)"
+)
 
 
 def _slugify(value: str) -> str:
@@ -49,11 +54,28 @@ def _build_run_id(target_script: Path) -> str:
     return f"{timestamp}_{_slugify(target_script.stem)}"
 
 
-def _readiness_reason(script_text: str) -> Optional[str]:
+def _missing_selector_contract_keys(script_text: str) -> list[str]:
+    matches = SELECTOR_CONTRACT_MISSING_PATTERN.findall(script_text)
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for semantic_key in matches:
+        if semantic_key not in seen:
+            seen.add(semantic_key)
+            ordered.append(semantic_key)
+    return ordered
+
+
+def _readiness_status(script_text: str) -> tuple[Optional[str], Optional[str]]:
+    missing_selectors = _missing_selector_contract_keys(script_text)
+    if missing_selectors:
+        joined = ", ".join(missing_selectors)
+        reason = f"Script is blocked because the selector contract is missing required selector(s): {joined}."
+        return reason, "blocked_by_selector_contract"
     for marker in INCOMPLETE_MARKERS:
         if marker in script_text:
-            return f"Script contains incomplete implementation markers ({marker}) and is not ready for honest execution."
-    return None
+            reason = f"Script contains incomplete implementation markers ({marker}) and is not ready for honest execution."
+            return reason, "blocked_by_incomplete_markers"
+    return None, None
 
 
 def _classify_execution_result(return_code: int, stdout_text: str, stderr_text: str) -> tuple[str, str]:
@@ -90,7 +112,7 @@ def run_test_script(script_path: str) -> dict[str, object]:
         return summary
 
     script_text = target_script.read_text(encoding="utf-8")
-    readiness_reason = _readiness_reason(script_text)
+    readiness_reason, execution_readiness = _readiness_status(script_text)
     command = [sys.executable, "-m", "pytest", _relative_to_repo(target_script), "-q"]
     command_text = subprocess.list2cmdline(command)
 
@@ -106,7 +128,7 @@ def run_test_script(script_path: str) -> dict[str, object]:
             "end_time": end_time.isoformat(),
             "duration_seconds": round((end_time - start_time).total_seconds(), 6),
             "return_code": None,
-            "execution_readiness": "blocked_by_incomplete_markers",
+            "execution_readiness": execution_readiness,
             "notes": ["Execution was skipped on purpose to avoid pretending incomplete scaffolds are runnable."],
         }
         artifact_paths = collect_run_artifacts(run_dir, summary, command_text, "", "")
