@@ -18,7 +18,7 @@ Bounded TestOps workflow - from PRD to executable test with artifact-backed bug 
 - PRD parsing with Pydantic validation
 - Test point extraction with selector contract
 - Test data contract for fixture values
-- Demo app as local web target (demo_app.py)
+- Demo app as local web target (`demo_app/main.py`)
 - Executable generated login test
 - CLI run artifacts (command/stdout/stderr/summary)
 - Failed-run screenshot artifact capture

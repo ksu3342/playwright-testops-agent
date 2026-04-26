@@ -12,10 +12,10 @@ This bounded TestOps workflow is designed for portfolio demonstration.
    - `collector.py` discovers produced screenshot/trace artifacts under the run directory
    - `reporter.py` drafts bug report from run summary and artifact paths
 
-2. **Optional normalize step** (`app/normalize/`)
-   - Input validation and enrichment before extraction
+2. **Optional normalize step** (`app/core/normalizer.py`)
+   - Requirement normalization before deterministic extraction
 
-3. **Demo app** (`demo_app.py`)
+3. **Demo app** (`demo_app/main.py`)
    - Local web target for testing generated scripts
 
 4. **FastAPI wrapper** (`app/api/`)
