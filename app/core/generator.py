@@ -499,11 +499,13 @@ def generate_test_script(
     test_points: list[TestPoint],
     selector_contract_path: Optional[Path] = None,
     test_data_contract_path: Optional[Path] = None,
+    input_path: Optional[str] = None,
 ) -> Path:
     """Render a deterministic Playwright scaffold or an executable login happy-path test."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     filename = f"test_{_document_slug(document)}_generated.py"
     output_path = OUTPUT_DIR / filename
+    metadata_path = OUTPUT_DIR / f"{output_path.stem}.metadata.json"
 
     selector_contract = load_selector_contract(selector_contract_path)
     if _should_render_executable_login(document, test_points):
@@ -513,7 +515,24 @@ def generate_test_script(
         rendered = _render_with_template(_render_context(document, test_points, selector_contract))
 
     output_path.write_text(rendered, encoding="utf-8")
+
+    # Write lineage metadata
+    import json
+    source_requirement = _relative_to_repo(Path(input_path)) if input_path else None
+    metadata = {
+        "source_requirement": source_requirement,
+        "generated_script": _relative_to_repo(output_path),
+    }
+    metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
     return OUTPUT_DIR_RELATIVE / filename
+
+
+def _relative_to_repo(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        return path.resolve().as_posix()
 
 
 # TODO: Support splitting into multiple files only when a single file becomes too large.

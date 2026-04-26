@@ -100,7 +100,7 @@ def cmd_parse(input_path: str) -> int:
 def cmd_generate(input_path: str) -> int:
     document = parse_prd(input_path)
     test_points = extract_test_points(document)
-    script_path = generate_test_script(document, test_points)
+    script_path = generate_test_script(document, test_points, input_path=input_path)
     print(f"Extracted {len(test_points)} test point(s):")
     for test_point in test_points:
         print(f"- {test_point.id} [{test_point.type}] {test_point.title}")

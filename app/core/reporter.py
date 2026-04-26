@@ -242,6 +242,10 @@ def create_bug_report_from_run(run_dir_path: str) -> dict[str, object]:
     markdown = _build_report_markdown(summary, run_dir, command_text, stdout_text, stderr_text)
     report_path.write_text(markdown, encoding="utf-8")
 
+    # Update summary with report path
+    summary["report_path"] = (REPORTS_DIR_RELATIVE / report_path.name).as_posix()
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+
     result.update(
         {
             "generated": True,

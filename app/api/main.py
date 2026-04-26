@@ -203,7 +203,7 @@ def generate(request: TextInputRequest) -> GenerateResponse:
     try:
         document = parse_prd(resolved_input_path)
         test_points = extract_test_points(document)
-        script_path = generate_test_script(document, test_points)
+        script_path = generate_test_script(document, test_points, input_path=resolved_input_path)
     except (FileNotFoundError, OSError, ValueError) as exc:
         _raise_bad_request(exc)
 

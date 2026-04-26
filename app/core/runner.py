@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import subprocess
@@ -44,6 +45,25 @@ def _resolve_target_script(script_path: str) -> Path:
     if repo_candidate.exists():
         return repo_candidate
     return candidate.resolve()
+
+
+def _read_lineage_metadata(target_script: Path) -> dict[str, Optional[str]]:
+    """Read lineage metadata from generated test's .metadata.json if available."""
+    metadata_path = target_script.parent / f"{target_script.stem}.metadata.json"
+    if not metadata_path.exists():
+        return {"source_requirement": None, "generated_script": None}
+
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if isinstance(metadata, dict):
+            return {
+                "source_requirement": metadata.get("source_requirement"),
+                "generated_script": metadata.get("generated_script"),
+            }
+    except (json.JSONDecodeError, OSError):
+        pass
+
+    return {"source_requirement": None, "generated_script": None}
 
 
 def _relative_to_repo(path: Path) -> str:
@@ -97,6 +117,9 @@ def run_test_script(script_path: str) -> dict[str, object]:
     run_dir = create_run_directory(run_id)
     start_time = datetime.now(timezone.utc)
 
+    # Read lineage metadata from generated test if available
+    lineage = _read_lineage_metadata(target_script)
+
     if not target_script.exists():
         summary = {
             "run_id": run_id,
@@ -110,6 +133,7 @@ def run_test_script(script_path: str) -> dict[str, object]:
             "return_code": None,
             "execution_readiness": "missing_target",
             "notes": ["Provide a valid script path before running the pipeline."],
+            "lineage": lineage,
         }
         artifact_paths = collect_run_artifacts(run_dir, summary, "", "", "")
         summary["run_dir"] = artifact_paths["run_dir"]
@@ -136,6 +160,7 @@ def run_test_script(script_path: str) -> dict[str, object]:
             "return_code": None,
             "execution_readiness": execution_readiness,
             "notes": ["Execution was skipped on purpose to avoid pretending incomplete scaffolds are runnable."],
+            "lineage": lineage,
         }
         artifact_paths = collect_run_artifacts(run_dir, summary, command_text, "", "")
         summary["run_dir"] = artifact_paths["run_dir"]
@@ -164,6 +189,7 @@ def run_test_script(script_path: str) -> dict[str, object]:
             "return_code": completed.returncode,
             "execution_readiness": "ready",
             "notes": [],
+            "lineage": lineage,
         }
         artifact_paths = collect_run_artifacts(run_dir, summary, command_text, completed.stdout, completed.stderr)
         summary["run_dir"] = artifact_paths["run_dir"]
@@ -182,6 +208,7 @@ def run_test_script(script_path: str) -> dict[str, object]:
             "return_code": None,
             "execution_readiness": "ready",
             "notes": ["Check the local Python/pytest environment before retrying."],
+            "lineage": lineage,
         }
         artifact_paths = collect_run_artifacts(run_dir, summary, command_text, "", str(exc))
         summary["run_dir"] = artifact_paths["run_dir"]

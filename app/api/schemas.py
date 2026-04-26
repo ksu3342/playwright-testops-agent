@@ -82,6 +82,8 @@ class RunResponse(BaseModel):
     notes: list[str]
     artifact_paths: dict[str, str]
     run_dir: str
+    lineage: Optional[dict[str, Optional[str]]] = None
+    report_path: Optional[str] = None
 
 
 class ReportResponse(BaseModel):
