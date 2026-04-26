@@ -1,48 +1,41 @@
 # SPEC
 
 ## Goal
-Build an MVP TestOps Agent based on Playwright.
+Build a portfolio-grade AI-assisted TestOps workflow backend based on Playwright.
+
+## Current stage
+Bounded TestOps workflow - from PRD to executable test with artifact-backed bug report.
 
 ## Core workflow
 1. Read a simple PRD or page description
-2. Extract test points
-3. Generate Playwright test scripts
-4. Execute tests
-5. Save screenshots and logs
-6. Summarize failures
-7. Draft a bug report
+2. Extract test points (selector contract + test data contract)
+3. Generate Playwright test scripts from templates
+4. Execute tests locally
+5. Collect screenshots and trace artifacts when produced
+6. Draft a bug report referencing artifact paths
+
+## Implemented features
+- PRD parsing with Pydantic validation
+- Test point extraction with selector contract
+- Test data contract for fixture values
+- Demo app as local web target (demo_app.py)
+- Executable generated login test
+- CLI run artifacts (command/stdout/stderr/summary)
+- Failed-run screenshot artifact capture
+- Bug report draft referencing artifact path
+- FastAPI run/artifact lookup endpoints
+- GitHub Actions CI
 
 ## Tech stack
 - Python
 - Playwright
 - Jinja2 templates
-- Optional FastAPI wrapper later
+- FastAPI (thin wrapper over CLI core)
 
-## Phase 1
-
-Phase 1 is CLI-first and focused on scaffold quality.
-
-Deliverables:
-- simple command-line workflow
-- readable modules with TODO boundaries
-- sample inputs for demo
-- generated test/report output folders
-- lightweight tests for the placeholder pipeline
-
-Non-goals for this phase:
-- full LLM orchestration
-- enterprise multi-agent architecture
-- database/auth/queue systems
-- production claims
-
-## MVP scope for current scaffold
-- Provide a CLI-based end-to-end MVP pipeline
-- Accept a simple text PRD/page description
-- Parse the input and extract basic test points
-- Generate a placeholder Playwright test script
-- Run a placeholder execution flow and save artifacts under `data/`
-- Draft a simple bug report from the current run result
-- Keep implementation modular and easy to extend
-
-## Later stage
-- Add a thin FastAPI wrapper only after the CLI workflow is stable
+## Non-goals (out of scope)
+- production-grade platform
+- autonomous agent / LLM orchestration
+- multi-agent orchestration
+- database-backed platform
+- queue-backed async execution
+- frontend/dashboard/auth

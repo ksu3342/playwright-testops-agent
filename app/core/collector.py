@@ -78,4 +78,4 @@ def collect_run_artifacts(
     return artifact_paths
 
 
-# TODO: Add screenshot and trace artifact storage only when execution really produces them.
+# Artifacts are discovered only when the executed test actually writes them under the run directory.
