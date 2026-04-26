@@ -2,14 +2,14 @@
 
 [English](./README.en.md)
 
-一个面向真实测试流程的 Playwright 工作流项目：把需求说明收口为可检查的测试脚手架、本地运行记录和缺陷报告草稿。
+一个面向真实测试流程的 Playwright TestOps workflow backend：把需求输入转成可生成、可运行、可追踪、可报告的测试证据链。
 
-[![Python Backend](https://img.shields.io/badge/Python-Backend-3776AB?logo=python&logoColor=white)](./app/core/)
-[![FastAPI Routes](https://img.shields.io/badge/FastAPI-Routes-009688?logo=fastapi&logoColor=white)](./app/api/main.py)
-[![Playwright Scaffolds](https://img.shields.io/badge/Playwright-Scaffolds-2EAD33?logo=playwright&logoColor=white)](./app/core/generator.py)
-[![File-Backed Artifacts](https://img.shields.io/badge/File--Backed-Artifacts-4B5563)](./app/core/runner.py)
-[![Pytest Integration Tested](https://img.shields.io/badge/Pytest-Integration%20Tested-0A9EDC?logo=pytest&logoColor=white)](./tests/integration/test_api.py)
-[![Docker Packaged](https://img.shields.io/badge/Docker-Packaged-2496ED?logo=docker&logoColor=white)](./Dockerfile)
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](./app/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-Routes-009688?logo=fastapi&logoColor=white)](./app/api/main.py)
+[![Playwright](https://img.shields.io/badge/Playwright-Integration-2EAD33?logo=playwright&logoColor=white)](./app/core/generator.py)
+[![Pytest](https://img.shields.io/badge/Pytest-Tests-0A9EDC?logo=pytest&logoColor=white)](./tests/)
+[![GitHub Actions CI](https://img.shields.io/badge/GitHub%20Actions-CI-2088FF?logo=github&logoColor=white)](./.github/workflows/ci.yml)
+[![Docker](https://img.shields.io/badge/Docker-Packaged-2496ED?logo=docker&logoColor=white)](./Dockerfile)
 
 ## Quick Start / 快速开始
 
@@ -98,6 +98,41 @@ python -m app.main report --input data/runs/<run_id>
 - 当前持久化仍然是文件系统，不是 Redis、MySQL 或其他数据库驱动的平台。
 - 这里没有前端、认证层、多 Agent 编排或完整测试平台的声称。
 - 这也不是队列驱动的异步执行系统或生产级平台。
+
+## run_id 现在能证明什么
+
+每个 run 产生的 `run_id` 在 `data/runs/<run_id>/summary.json` 中记录了完整证据链：
+
+- `lineage.source_requirement`: 输入的 PRD 文件路径（如 `data/inputs/sample_prd_login.md`）
+- `lineage.generated_script`: 生成的测试脚本路径（如 `generated/tests/test_login_generated.py`）
+- `artifact_paths`: command.txt、stdout.txt、stderr.txt、summary.json 的路径
+- `artifact_paths.screenshot`: Playwright 失败时的截图路径（如果有）
+- `report_path`: bug report 的路径（如果生成了）
+
+通过 API 查询：
+
+```bash
+# 查询 run 详情
+GET /api/v1/runs/{run_id}
+
+# 查询 artifacts
+GET /api/v1/runs/{run_id}/artifacts
+```
+
+响应中会包含 `lineage`、`artifact_paths` 和 `report_path` 字段。
+
+## CI 验证
+
+[.github/workflows/ci.yml](./.github/workflows/ci.yml) 在每次 push 和 PR 到 main 时运行：
+
+- 安装 core 和 e2e 依赖
+- 安装 Playwright Chromium
+- 运行 demo app tests
+- 运行 unit tests
+- 运行 integration tests
+- 生成 login test
+- 运行 generated login test
+- 通过 CLI runner 运行 generated login test
 
 ## 进一步阅读
 

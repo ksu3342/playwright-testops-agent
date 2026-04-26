@@ -329,3 +329,16 @@ docker compose up --build
 - 不是生产级编排系统
 - 不是队列驱动的异步执行服务
 - 不是数据库驱动的测试平台
+
+## CI 验证
+
+[.github/workflows/ci.yml](./.github/workflows/ci.yml) 在每次 push 和 PR 到 main 时运行：
+
+- 安装 core 和 e2e 依赖
+- 安装 Playwright Chromium
+- 运行 demo app tests
+- 运行 unit tests
+- 运行 integration tests
+- 生成 login test
+- 运行 generated login test
+- 通过 CLI runner 运行 generated login test

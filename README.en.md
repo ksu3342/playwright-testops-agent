@@ -2,14 +2,14 @@
 
 [简体中文](./README.md)
 
-A Playwright-based test workflow project that turns requirement inputs into inspectable test scaffolds, local run records, and draft bug reports.
+A Playwright TestOps workflow backend that turns requirement inputs into generated, runnable, traceable, and reportable test evidence chains.
 
-[![Python Backend](https://img.shields.io/badge/Python-Backend-3776AB?logo=python&logoColor=white)](./app/core/)
-[![FastAPI Routes](https://img.shields.io/badge/FastAPI-Routes-009688?logo=fastapi&logoColor=white)](./app/api/main.py)
-[![Playwright Scaffolds](https://img.shields.io/badge/Playwright-Scaffolds-2EAD33?logo=playwright&logoColor=white)](./app/core/generator.py)
-[![File-Backed Artifacts](https://img.shields.io/badge/File--Backed-Artifacts-4B5563)](./app/core/runner.py)
-[![Pytest Integration Tested](https://img.shields.io/badge/Pytest-Integration%20Tested-0A9EDC?logo=pytest&logoColor=white)](./tests/integration/test_api.py)
-[![Docker Packaged](https://img.shields.io/badge/Docker-Packaged-2496ED?logo=docker&logoColor=white)](./Dockerfile)
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](./app/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-Routes-009688?logo=fastapi&logoColor=white)](./app/api/main.py)
+[![Playwright](https://img.shields.io/badge/Playwright-Integration-2EAD33?logo=playwright&logoColor=white)](./app/core/generator.py)
+[![Pytest](https://img.shields.io/badge/Pytest-Tests-0A9EDC?logo=pytest&logoColor=white)](./tests/)
+[![GitHub Actions CI](https://img.shields.io/badge/GitHub%20Actions-CI-2088FF?logo=github&logoColor=white)](./.github/workflows/ci.yml)
+[![Docker](https://img.shields.io/badge/Docker-Packaged-2496ED?logo=docker&logoColor=white)](./Dockerfile)
 
 ## Quick Start
 
@@ -98,6 +98,41 @@ The report path under `generated/reports/` is also a runtime output, not a fixed
 - Persistence is still file-backed, not Redis-backed, MySQL-backed, or otherwise database-backed.
 - No frontend, authentication layer, multi-agent system, or full testing platform is claimed here.
 - This is not a queue-backed async execution system or a production-grade platform.
+
+## What run_id Now Proves
+
+Each run's `run_id` records a complete evidence chain in `data/runs/<run_id>/summary.json`:
+
+- `lineage.source_requirement`: Input PRD file path (e.g., `data/inputs/sample_prd_login.md`)
+- `lineage.generated_script`: Generated test script path (e.g., `generated/tests/test_login_generated.py`)
+- `artifact_paths`: Paths to command.txt, stdout.txt, stderr.txt, summary.json
+- `artifact_paths.screenshot`: Screenshot path on Playwright failure (if any)
+- `report_path`: Bug report path (if generated)
+
+Query via API:
+
+```bash
+# Query run detail
+GET /api/v1/runs/{run_id}
+
+# Query artifacts
+GET /api/v1/runs/{run_id}/artifacts
+```
+
+Responses include `lineage`, `artifact_paths`, and `report_path` fields.
+
+## CI Verification
+
+[.github/workflows/ci.yml](./.github/workflows/ci.yml) runs on every push and PR to main:
+
+- Install core and e2e dependencies
+- Install Playwright Chromium
+- Run demo app tests
+- Run unit tests
+- Run integration tests
+- Generate login test
+- Run generated login test
+- Run generated login test via CLI runner
 
 ## Further Reading
 
