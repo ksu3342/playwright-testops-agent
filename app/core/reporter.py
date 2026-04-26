@@ -61,7 +61,7 @@ def _should_generate_bug_report(status: str) -> tuple[bool, str]:
 
 def _select_evidence_excerpt(stdout_text: str, stderr_text: str) -> str:
     combined_lines = [line.rstrip() for line in f"{stderr_text}\n{stdout_text}".splitlines() if line.strip()]
-    interesting_tokens = ["AssertionError", "FAILED", "ERROR", "Traceback", "E       ", "ModuleNotFoundError", "ImportError"]
+    interesting_tokens = ["AssertionError", "TimeoutError", "FAILED", "ERROR", "Traceback", "E       ", "ModuleNotFoundError", "ImportError"]
     interesting_lines = [line for line in combined_lines if any(token in line for token in interesting_tokens)]
     selected_lines = interesting_lines[:8] if interesting_lines else combined_lines[:8]
     if not selected_lines:
@@ -71,7 +71,7 @@ def _select_evidence_excerpt(stdout_text: str, stderr_text: str) -> str:
 
 def _probable_cause_hypothesis(stdout_text: str, stderr_text: str) -> str:
     combined_output = f"{stdout_text}\n{stderr_text}"
-    if "AssertionError" in combined_output or re.search(r"\bassert\b", combined_output):
+    if "AssertionError" in combined_output or "TimeoutError" in combined_output or re.search(r"\bassert\b", combined_output):
         return (
             "the executed test encountered an assertion mismatch. Current artifacts do not prove whether the product behavior is wrong "
             "or whether the scripted expectation is wrong."
@@ -86,6 +86,17 @@ def _probable_cause_hypothesis(stdout_text: str, stderr_text: str) -> str:
         "the run failed during execution, but the current artifacts do not confirm a single root cause. More targeted runtime evidence "
         "would be needed before making a stronger claim."
     )
+
+
+def _artifact_reference_lines(artifact_paths: dict[str, str]) -> list[str]:
+    lines: list[str] = []
+    screenshot_path = artifact_paths.get("screenshot")
+    trace_path = artifact_paths.get("trace")
+    if screenshot_path:
+        lines.append(f"- Screenshot artifact: `{screenshot_path}`")
+    if trace_path:
+        lines.append(f"- Trace artifact: `{trace_path}`")
+    return lines
 
 
 def _build_report_markdown(
@@ -107,8 +118,9 @@ def _build_report_markdown(
     notes = [
         "This draft is generated only from Phase 5 run artifacts.",
         "Probable cause is a hypothesis, not a confirmed root cause.",
-        "No screenshots, browser traces, or DOM snapshots were collected in this phase.",
     ]
+    if not artifact_paths.get("screenshot") and not artifact_paths.get("trace"):
+        notes.append("No screenshots or browser traces were collected in this phase.")
     if target_script.startswith("tests/assets/"):
         notes.append(
             "This run targets a local pytest asset used to validate the pipeline, so the draft demonstrates reporting behavior rather than a confirmed product defect."
@@ -160,13 +172,18 @@ def _build_report_markdown(
         f"- Command artifact: `{artifact_paths.get('command', _relative_to_repo(run_dir / 'command.txt'))}`",
         f"- Stdout artifact: `{artifact_paths.get('stdout', _relative_to_repo(run_dir / 'stdout.txt'))}`",
         f"- Stderr artifact: `{artifact_paths.get('stderr', _relative_to_repo(run_dir / 'stderr.txt'))}`",
-        "- No screenshots or browser traces were collected in this phase.",
         "",
-        "## Probable Cause Hypothesis",
-        f"Hypothesis: {hypothesis}",
-        "",
-        "## Notes / Limitations",
     ]
+    lines.extend(_artifact_reference_lines(artifact_paths))
+    lines.extend(
+        [
+            "",
+            "## Probable Cause Hypothesis",
+            f"Hypothesis: {hypothesis}",
+            "",
+            "## Notes / Limitations",
+        ]
+    )
     lines.extend(f"- {note}" for note in notes)
     lines.append("")
     return "\n".join(lines)

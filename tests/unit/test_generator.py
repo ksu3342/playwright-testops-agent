@@ -18,8 +18,13 @@ def test_login_input_generates_script_under_generated_tests() -> None:
     assert "User Login happy path works as described" in content
     assert "page.goto" in content
     assert "sync_playwright" in content
-    assert "DEMO_APP_PORT" in content
-    assert "REUSE_EXISTING_DEMO_SERVER" in content
+    assert "import uvicorn" in content
+    assert "from demo_app.main import app" in content
+    assert "threading.Thread(target=server.run, daemon=True)" in content
+    assert "server.should_exit = True" in content
+    assert "subprocess.Popen" not in content
+    assert "DEMO_SERVER_COMMAND" not in content
+    assert "REUSE_EXISTING_DEMO_SERVER" not in content
     assert "pytest-playwright" not in content
     assert '# selector-contract: login.email_input -> login-email-input' in content
     assert 'login_email_input = page.get_by_test_id("login-email-input")' in content
@@ -34,8 +39,12 @@ def test_login_input_generates_script_under_generated_tests() -> None:
     assert '# test-fixture: login.valid_password -> password123' in content
     assert "valid_password = 'password123'" in content
     assert 'owned_base_url = f"http://{DEFAULT_DEMO_HOST}:{demo_port}"' in content
-    assert 'server_env["DEMO_APP_PORT"] = str(demo_port)' in content
-    assert 'REUSE_EXISTING_DEMO_SERVER = os.getenv("REUSE_EXISTING_DEMO_SERVER", "0") == "1"' in content
+    assert 'config = uvicorn.Config(' in content
+    assert 'thread = threading.Thread(target=server.run, daemon=True)' in content
+    assert 'server.should_exit = True' in content
+    assert 'subprocess.Popen' not in content
+    assert 'DEMO_SERVER_COMMAND' not in content
+    assert 'REUSE_EXISTING_DEMO_SERVER' not in content
     assert "Locate the relevant input selector" not in content
     assert "Locate the relevant button selector" not in content
     assert "TODO" not in content

@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 import sys
@@ -5,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from app.core.collector import REPO_ROOT, create_run_directory, collect_run_artifacts
+from app.core.collector import REPO_ROOT, RUN_DIR_ENV_VAR, create_run_directory, collect_run_artifacts
 from app.core.selector_contract import SELECTOR_CONTRACT_MISSING_MARKER
 
 
@@ -20,7 +21,10 @@ ENVIRONMENT_ERROR_MARKERS = [
     "No module named",
     "ImportError",
     "fixture 'page' not found",
-    "playwright",
+    "browserType.launch: Executable doesn't exist",
+    "Executable doesn't exist at",
+    "Please run the following command to download",
+    "playwright install",
 ]
 SELECTOR_CONTRACT_MISSING_PATTERN = re.compile(
     rf"{re.escape(SELECTOR_CONTRACT_MISSING_MARKER)}:\s*([A-Za-z0-9_.-]+)"
@@ -115,6 +119,8 @@ def run_test_script(script_path: str) -> dict[str, object]:
     readiness_reason, execution_readiness = _readiness_status(script_text)
     command = [sys.executable, "-m", "pytest", _relative_to_repo(target_script), "-q"]
     command_text = subprocess.list2cmdline(command)
+    environment = dict(os.environ)
+    environment[RUN_DIR_ENV_VAR] = str(run_dir.resolve())
 
     if readiness_reason:
         end_time = datetime.now(timezone.utc)
@@ -142,6 +148,7 @@ def run_test_script(script_path: str) -> dict[str, object]:
             capture_output=True,
             text=True,
             check=False,
+            env=environment,
         )
         end_time = datetime.now(timezone.utc)
         status, reason = _classify_execution_result(completed.returncode, completed.stdout, completed.stderr)

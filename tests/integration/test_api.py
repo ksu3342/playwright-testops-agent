@@ -91,8 +91,13 @@ def test_generate_then_run_endpoint_passes_executable_login_script() -> None:
     script_content = Path(generate_payload["script_path"]).read_text(encoding="utf-8")
     assert '# selector-contract: login.email_input -> login-email-input' in script_content
     assert '# test-fixture: login.valid_email -> demo@example.com' in script_content
-    assert "DEMO_APP_PORT" in script_content
-    assert "REUSE_EXISTING_DEMO_SERVER" in script_content
+    assert "import uvicorn" in script_content
+    assert "from demo_app.main import app" in script_content
+    assert "threading.Thread(target=server.run, daemon=True)" in script_content
+    assert "server.should_exit = True" in script_content
+    assert "subprocess.Popen" not in script_content
+    assert "DEMO_SERVER_COMMAND" not in script_content
+    assert "REUSE_EXISTING_DEMO_SERVER" not in script_content
     assert "TODO" not in script_content
 
     run_response = client.post(
@@ -121,6 +126,29 @@ def test_run_then_report_endpoint_generates_bug_report_for_failed_run() -> None:
     assert report_payload["status"] == "failed"
     assert report_payload["report_path"] is not None
     assert report_payload["report_path"].startswith("generated/reports/")
+
+
+def test_run_then_report_endpoint_generates_bug_report_with_screenshot_for_playwright_failure() -> None:
+    run_payload = _create_run("tests/assets/playwright_login_failure_case.py")
+    assert run_payload["status"] == "failed"
+    assert run_payload["run_dir"].startswith("data/runs/")
+    assert run_payload["artifact_paths"]["screenshot"].endswith("screenshots/login_failure.png")
+    assert Path(run_payload["artifact_paths"]["screenshot"]).exists()
+
+    report_response = client.post(
+        "/api/v1/report",
+        json={"input_path": run_payload["run_dir"]},
+    )
+    report_payload = report_response.json()
+
+    assert report_response.status_code == 200
+    assert report_payload["generated"] is True
+    assert report_payload["status"] == "failed"
+    assert report_payload["report_path"] is not None
+    assert report_payload["report_path"].startswith("generated/reports/")
+
+    report_content = Path(report_payload["report_path"]).read_text(encoding="utf-8")
+    assert run_payload["artifact_paths"]["screenshot"] in report_content
 
 
 def test_runs_endpoint_lists_summary_backed_runs() -> None:

@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -8,6 +9,14 @@ from app.core.generator import generate_test_script
 from app.core.normalizer import normalize_requirement_file
 from app.core.parser import parse_prd
 from app.core.runner import run_test_script
+
+
+def _extract_output_value(output: str, label: str) -> str:
+    prefix = f"{label}: "
+    for line in output.splitlines():
+        if line.startswith(prefix):
+            return line[len(prefix) :]
+    raise AssertionError(f"Could not find `{label}` in CLI output.")
 
 
 def test_pipeline_parse_flow_returns_structured_document() -> None:
@@ -168,8 +177,13 @@ def test_cli_generate_command_supports_positional_input() -> None:
     assert '# selector-contract: dashboard.heading -> dashboard-heading' in content
     assert '# test-fixture: login.valid_email -> demo@example.com' in content
     assert '# test-fixture: login.valid_password -> password123' in content
-    assert "DEMO_APP_PORT" in content
-    assert "REUSE_EXISTING_DEMO_SERVER" in content
+    assert "import uvicorn" in content
+    assert "from demo_app.main import app" in content
+    assert "threading.Thread(target=server.run, daemon=True)" in content
+    assert "server.should_exit = True" in content
+    assert "subprocess.Popen" not in content
+    assert "DEMO_SERVER_COMMAND" not in content
+    assert "REUSE_EXISTING_DEMO_SERVER" not in content
     assert "TODO" not in content
     assert "<VALID_EMAIL>" not in content
     assert "<VALID_PASSWORD>" not in content
@@ -225,6 +239,37 @@ def test_cli_run_command_reports_blocked_status_for_generated_scaffold() -> None
     )
     assert "Run status: blocked" in result.stdout
     assert "Reason:" in result.stdout
+
+
+def test_cli_run_command_records_screenshot_and_report_for_playwright_failure_case() -> None:
+    run_result = subprocess.run(
+        [sys.executable, "-m", "app.main", "run", "tests/assets/playwright_login_failure_case.py"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "Run status: failed" in run_result.stdout
+
+    run_dir = _extract_output_value(run_result.stdout, "Run directory")
+    run_id = Path(run_dir).name
+    summary_path = Path(run_dir) / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["status"] == "failed"
+    assert summary["artifact_paths"]["screenshot"].endswith("screenshots/login_failure.png")
+    assert Path(summary["artifact_paths"]["screenshot"]).exists()
+
+    report_result = subprocess.run(
+        [sys.executable, "-m", "app.main", "report", run_dir],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "Run status: failed" in report_result.stdout
+    assert "Report generated: yes" in report_result.stdout
+
+    report_path = Path(f"generated/reports/bug_report_{run_id}.md")
+    report_content = report_path.read_text(encoding="utf-8")
+    assert summary["artifact_paths"]["screenshot"] in report_content
 
 
 def test_cli_report_command_generates_report_for_failed_run() -> None:

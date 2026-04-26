@@ -38,6 +38,20 @@ def test_runner_records_failed_run_artifacts() -> None:
     assert Path(result["artifact_paths"]["stderr"]).exists()
 
 
+def test_runner_records_playwright_failure_artifacts() -> None:
+    result = run_test_script("tests/assets/playwright_login_failure_case.py")
+
+    assert result["status"] == "failed"
+    assert result["reason"] == "Execution ran but reported a failing test or runtime error."
+    assert "screenshot" in result["artifact_paths"]
+    assert Path(result["artifact_paths"]["screenshot"]).exists()
+
+    summary = _load_summary(result["artifact_paths"]["summary"])
+    assert summary["status"] == "failed"
+    assert summary["artifact_paths"]["screenshot"].endswith("screenshots/login_failure.png")
+    assert Path(summary["artifact_paths"]["screenshot"]).exists()
+
+
 def test_runner_marks_generated_scaffold_as_blocked() -> None:
     document = parse_prd("data/inputs/sample_prd_search.md")
     test_points = extract_test_points(document)
