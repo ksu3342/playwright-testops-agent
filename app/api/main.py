@@ -155,10 +155,15 @@ def get_run(run_id: str) -> RunResponse:
 @app.get("/api/v1/runs/{run_id}/artifacts", response_model=RunArtifactsResponse)
 def get_run_artifacts(run_id: str) -> RunArtifactsResponse:
     payload = _load_run_summary_payload(run_id)
+    lineage = payload.get("lineage")
+    if not isinstance(lineage, dict):
+        lineage = None
     return RunArtifactsResponse(
         run_id=str(payload["run_id"]),
         run_dir=str(payload["run_dir"]),
         artifact_paths={key: str(value) for key, value in dict(payload["artifact_paths"]).items()},
+        lineage=lineage,
+        report_path=payload.get("report_path"),
     )
 
 

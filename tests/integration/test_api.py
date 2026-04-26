@@ -110,6 +110,49 @@ def test_generate_then_run_endpoint_passes_executable_login_script() -> None:
     assert run_payload["status"] == "passed"
 
 
+def test_generated_login_run_lineage_and_artifacts_accessible_via_api() -> None:
+    # Use input_path directly to get fixed source_requirement path
+    generate_response = client.post(
+        "/api/v1/generate",
+        json={"input_path": "data/inputs/sample_prd_login.md"},
+    )
+    assert generate_response.status_code == 200
+    generate_payload = generate_response.json()
+    script_path = generate_payload["script_path"]
+
+    run_response = client.post(
+        "/api/v1/run",
+        json={"input_path": script_path},
+    )
+    run_payload = run_response.json()
+
+    assert run_response.status_code == 200
+    assert run_payload["status"] == "passed"
+
+    run_id = run_payload["run_id"]
+
+    detail_response = client.get(f"/api/v1/runs/{run_id}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+
+    assert detail["status"] == "passed"
+    assert detail["lineage"] is not None
+    assert detail["lineage"].get("source_requirement") == "data/inputs/sample_prd_login.md"
+    assert detail["lineage"].get("generated_script") == script_path
+    assert "summary" in detail["artifact_paths"]
+    assert detail.get("report_path") is None
+
+    artifacts_response = client.get(f"/api/v1/runs/{run_id}/artifacts")
+    assert artifacts_response.status_code == 200
+    artifacts = artifacts_response.json()
+
+    assert artifacts["lineage"] is not None
+    assert artifacts["lineage"].get("source_requirement") == "data/inputs/sample_prd_login.md"
+    assert artifacts["lineage"].get("generated_script") == script_path
+    assert "summary" in artifacts["artifact_paths"]
+    assert artifacts.get("report_path") is None
+
+
 def test_run_then_report_endpoint_generates_bug_report_for_failed_run() -> None:
     run_payload = _create_run("tests/assets/runner_fail_case.py")
     assert run_payload["status"] == "failed"
@@ -201,11 +244,12 @@ def test_run_artifacts_endpoint_returns_saved_artifact_paths() -> None:
     response = client.get(f"/api/v1/runs/{run_payload['run_id']}/artifacts")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "run_id": run_payload["run_id"],
-        "run_dir": run_payload["run_dir"],
-        "artifact_paths": run_payload["artifact_paths"],
-    }
+    data = response.json()
+    assert data["run_id"] == run_payload["run_id"]
+    assert data["run_dir"] == run_payload["run_dir"]
+    assert data["artifact_paths"] == run_payload["artifact_paths"]
+    assert data["lineage"] == {"source_requirement": None, "generated_script": None}
+    assert data["report_path"] is None
 
 
 def test_run_lookup_endpoints_return_404_for_missing_run() -> None:

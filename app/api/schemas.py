@@ -104,3 +104,5 @@ class RunArtifactsResponse(BaseModel):
     run_id: str
     run_dir: str
     artifact_paths: dict[str, str]
+    lineage: Optional[dict[str, Optional[str]]] = None
+    report_path: Optional[str] = None
