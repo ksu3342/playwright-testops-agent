@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from app.agent import orchestrator
+from app.agent import graph
 from app.agent.orchestrator import run_agent_task
 
 
@@ -67,10 +67,10 @@ def test_agent_orchestrator_invokes_report_tool_for_failed_run(monkeypatch) -> N
             "report_path": "generated/reports/bug_report_fake_failed_run.md",
         }
 
-    monkeypatch.setattr(orchestrator.tools, "parse_requirement", fake_parse_requirement)
-    monkeypatch.setattr(orchestrator.tools, "generate_test", fake_generate_test)
-    monkeypatch.setattr(orchestrator.tools, "run_test", fake_run_test)
-    monkeypatch.setattr(orchestrator.tools, "create_report", fake_create_report)
+    monkeypatch.setattr(graph.tools, "parse_requirement", fake_parse_requirement)
+    monkeypatch.setattr(graph.tools, "generate_test", fake_generate_test)
+    monkeypatch.setattr(graph.tools, "run_test", fake_run_test)
+    monkeypatch.setattr(graph.tools, "create_report", fake_create_report)
 
     result = run_agent_task("data/inputs/fake_failed_prd.md")
 

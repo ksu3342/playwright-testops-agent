@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from app.agent import tools
+from app.agent.graph import invoke_agent_graph
 from app.agent.tracer import AgentRunTracer
 
 
@@ -36,33 +36,17 @@ def run_agent_task(input_path: str, agent_run_id: Optional[str] = None) -> dict[
     trace_path = tracer.trace["artifact_paths"]["trace"]
 
     try:
-        tracer.call_tool(
-            "parse_requirement",
-            {"input_path": input_path},
-            lambda: tools.parse_requirement(input_path),
-        )
-        generate_result = tracer.call_tool(
-            "generate_test",
-            {"input_path": input_path},
-            lambda: tools.generate_test(input_path),
-        )
-        script_path = str(generate_result["script_path"])
-        run_result = tracer.call_tool(
-            "run_test",
-            {"input_path": script_path},
-            lambda: tools.run_test(script_path),
-        )
-
-        report_result = None
-        if run_result.get("status") == "failed":
-            report_result = tracer.call_tool(
-                "create_report",
-                {"input_path": run_result["run_dir"]},
-                lambda: tools.create_report(str(run_result["run_dir"])),
+        graph_state = invoke_agent_graph(input_path, tracer)
+        final_status = str(graph_state.get("final_status", "environment_error"))
+        final_output = graph_state.get("final_output")
+        if not isinstance(final_output, dict):
+            final_output = _build_final_output(
+                input_path,
+                graph_state["generate_result"],
+                graph_state["run_result"],
+                graph_state.get("report_result"),
+                trace_path,
             )
-
-        final_status = str(run_result.get("status", "environment_error"))
-        final_output = _build_final_output(input_path, generate_result, run_result, report_result, trace_path)
         tracer.finalize(final_status=final_status, final_output=final_output)
         return {
             "agent_run_id": tracer.agent_run_id,
