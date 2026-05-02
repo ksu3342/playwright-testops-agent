@@ -12,6 +12,7 @@ def test_agent_run_request_keeps_input_path_compatibility() -> None:
     assert request.task_text is None
     assert request.approval_mode == "auto"
     assert request.retrieval_backend == "file_lexical"
+    assert request.planning_backend == "deterministic"
 
 
 def test_agent_run_request_accepts_task_text_payload() -> None:
@@ -22,6 +23,7 @@ def test_agent_run_request_accepts_task_text_payload() -> None:
         constraints=["Use selector contracts"],
         approval_mode="manual",
         retrieval_backend="langchain_local",
+        planning_backend="llm_assisted",
     )
 
     assert request.input_path is None
@@ -31,6 +33,7 @@ def test_agent_run_request_accepts_task_text_payload() -> None:
     assert request.constraints == ["Use selector contracts"]
     assert request.approval_mode == "manual"
     assert request.retrieval_backend == "langchain_local"
+    assert request.planning_backend == "llm_assisted"
 
 
 def test_agent_run_request_requires_input_path_or_task_text() -> None:

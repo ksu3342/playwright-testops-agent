@@ -81,6 +81,9 @@ def _build_final_output(
         ),
         "test_plan": test_plan,
         "planning_strategy": test_plan.get("planning_strategy"),
+        "planning_backend": test_plan.get("planning_backend"),
+        "planning_implementation": test_plan.get("planning_implementation"),
+        "planner_provider": test_plan.get("planner_provider"),
         "plan_validation": plan_validation,
         "run_summary": run_evidence.get("run_summary"),
         "queried_artifacts": run_evidence.get("queried_artifacts"),
@@ -106,6 +109,7 @@ def _resume_state_from_graph_state(graph_state: dict[str, Any]) -> dict[str, Any
         "report_exported",
         "task",
         "retrieval_backend",
+        "planning_backend",
     )
     return {key: graph_state[key] for key in keys if key in graph_state}
 
@@ -124,6 +128,7 @@ def _run_with_tracer(
     resume_state: Optional[dict[str, Any]] = None,
     task: Optional[dict[str, Any]] = None,
     retrieval_backend: str = "file_lexical",
+    planning_backend: str = "deterministic",
 ) -> dict[str, Any]:
     trace_path = tracer.trace["artifact_paths"]["trace"]
     approvals = approvals or {}
@@ -138,6 +143,7 @@ def _run_with_tracer(
             resume_state=resume_state,
             task=task,
             retrieval_backend=retrieval_backend,
+            planning_backend=planning_backend,
         )
         final_status = str(graph_state.get("final_status", "environment_error"))
         final_output = graph_state.get("final_output")
@@ -189,11 +195,13 @@ def run_agent_task(
     approval_mode: ApprovalMode = "auto",
     task: Optional[dict[str, Any]] = None,
     retrieval_backend: str = "file_lexical",
+    planning_backend: str = "deterministic",
 ) -> dict[str, Any]:
     initial_input = {
         "input_path": input_path,
         "approval_mode": approval_mode,
         "retrieval_backend": retrieval_backend,
+        "planning_backend": planning_backend,
     }
     if task:
         initial_input["task"] = task
@@ -207,6 +215,7 @@ def run_agent_task(
         approval_mode=approval_mode,
         task=task,
         retrieval_backend=retrieval_backend,
+        planning_backend=planning_backend,
     )
 
 
@@ -243,6 +252,9 @@ def continue_agent_run(
     retrieval_backend = input_payload.get("retrieval_backend")
     if not isinstance(retrieval_backend, str):
         retrieval_backend = "file_lexical"
+    planning_backend = input_payload.get("planning_backend")
+    if not isinstance(planning_backend, str):
+        planning_backend = "deterministic"
 
     tracer.record_approval_decision(gate, decision, reviewer=reviewer, comment=comment)
 
@@ -262,4 +274,5 @@ def continue_agent_run(
         resume_state=resume_state,
         task=task,
         retrieval_backend=retrieval_backend,
+        planning_backend=planning_backend,
     )

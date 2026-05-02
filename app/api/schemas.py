@@ -29,6 +29,7 @@ class AgentRunRequest(BaseModel):
     constraints: list[str] = Field(default_factory=list)
     approval_mode: Literal["auto", "manual"] = "auto"
     retrieval_backend: str = "file_lexical"
+    planning_backend: str = "deterministic"
 
     @model_validator(mode="after")
     def require_input_path_or_task_text(self) -> "AgentRunRequest":
@@ -168,6 +169,9 @@ class AgentRunResponse(BaseModel):
     retrieval_implementation: Optional[str] = None
     test_plan: Optional[dict[str, Any]] = None
     planning_strategy: Optional[str] = None
+    planning_backend: Optional[str] = None
+    planning_implementation: Optional[str] = None
+    planner_provider: Optional[str] = None
     plan_validation: Optional[dict[str, Any]] = None
     run_summary: Optional[dict[str, Any]] = None
     queried_artifacts: Optional[dict[str, Any]] = None

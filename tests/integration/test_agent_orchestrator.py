@@ -43,6 +43,8 @@ def test_agent_orchestrator_records_blocked_search_trace() -> None:
     assert trace["final_output"]["checkpoint_mode"] == "trace_resume_state"
     assert trace["final_output"]["retrieval_backend"] == "file_lexical"
     assert trace["final_output"]["retrieval_implementation"] == "deterministic_file_lexical"
+    assert trace["final_output"]["planning_backend"] == "deterministic"
+    assert trace["final_output"]["planning_implementation"] == "deterministic_test_plan_scaffold"
 
 
 def test_agent_orchestrator_records_passed_login_trace() -> None:
@@ -79,11 +81,19 @@ def test_agent_orchestrator_invokes_report_tool_for_failed_run(monkeypatch) -> N
             "results": [{"source_type": "selector_contract", "source_path": "data/contracts/demo_app_selectors.json"}],
         }
 
-    def fake_draft_test_plan(input_path: str, testing_context=None, information_needs=None) -> dict[str, object]:
+    def fake_draft_test_plan(
+        input_path: str,
+        testing_context=None,
+        information_needs=None,
+        planning_backend: str = "deterministic",
+    ) -> dict[str, object]:
         return {
             "feature_name": "Fake",
             "page_url": "/fake",
             "planning_strategy": "deterministic_scaffold",
+            "planning_backend": "deterministic",
+            "planning_implementation": "deterministic_test_plan_scaffold",
+            "planner_provider": None,
             "retrieved_source_paths": ["data/contracts/demo_app_selectors.json"],
             "retrieved_sources": [{"source_type": "selector_contract", "source_path": "data/contracts/demo_app_selectors.json"}],
             "test_cases": [{"id": "TP-001", "title": "Fake case"}],
@@ -219,11 +229,19 @@ def test_agent_orchestrator_manual_failed_run_approves_report_draft(monkeypatch)
             "results": [{"source_type": "selector_contract", "source_path": "data/contracts/demo_app_selectors.json"}],
         }
 
-    def fake_draft_test_plan(input_path: str, testing_context=None, information_needs=None) -> dict[str, object]:
+    def fake_draft_test_plan(
+        input_path: str,
+        testing_context=None,
+        information_needs=None,
+        planning_backend: str = "deterministic",
+    ) -> dict[str, object]:
         return {
             "feature_name": "Fake",
             "page_url": "/fake",
             "planning_strategy": "deterministic_scaffold",
+            "planning_backend": "deterministic",
+            "planning_implementation": "deterministic_test_plan_scaffold",
+            "planner_provider": None,
             "retrieved_source_paths": ["data/contracts/demo_app_selectors.json"],
             "retrieved_sources": [{"source_type": "selector_contract", "source_path": "data/contracts/demo_app_selectors.json"}],
             "test_cases": [{"id": "TP-001", "title": "Fake case"}],

@@ -17,6 +17,7 @@ class AgentGraphState(TypedDict, total=False):
     task: dict[str, Any]
     trace_path: str
     retrieval_backend: str
+    planning_backend: str
     approval_mode: ApprovalMode
     approvals: dict[str, Any]
     parse_result: dict[str, Any]
@@ -131,6 +132,9 @@ def _build_final_output(state: AgentGraphState) -> dict[str, Any]:
         "retrieval_implementation": retrieval_result.get("retrieval_implementation"),
         "test_plan": state.get("test_plan"),
         "planning_strategy": test_plan.get("planning_strategy"),
+        "planning_backend": test_plan.get("planning_backend"),
+        "planning_implementation": test_plan.get("planning_implementation"),
+        "planner_provider": test_plan.get("planner_provider"),
         "plan_validation": state.get("plan_validation"),
         "run_summary": run_evidence.get("run_summary"),
         "queried_artifacts": run_evidence.get("queried_artifacts"),
@@ -215,13 +219,19 @@ def _draft_test_plan_node(tracer: AgentRunTracer):
         input_path = state["input_path"]
         retrieval_result = state.get("retrieval_result")
         information_needs = state.get("information_needs")
+        planning_backend = str(state.get("planning_backend") or "deterministic")
         test_plan = tracer.call_tool(
             "draft_test_plan",
-            {"input_path": input_path, "information_needs": information_needs},
+            {
+                "input_path": input_path,
+                "information_needs": information_needs,
+                "planning_backend": planning_backend,
+            },
             lambda: tools.draft_test_plan(
                 input_path,
                 testing_context=retrieval_result,
                 information_needs=information_needs,
+                planning_backend=planning_backend,
             ),
         )
         return {"test_plan": test_plan}
@@ -484,12 +494,14 @@ def invoke_agent_graph(
     resume_state: Optional[dict[str, Any]] = None,
     task: Optional[dict[str, Any]] = None,
     retrieval_backend: str = "file_lexical",
+    planning_backend: str = "deterministic",
 ) -> AgentGraphState:
     graph = build_agent_graph(tracer)
     initial_state: AgentGraphState = {
         "input_path": input_path,
         "trace_path": tracer.trace["artifact_paths"]["trace"],
         "retrieval_backend": retrieval_backend,
+        "planning_backend": planning_backend,
         "approval_mode": approval_mode,
         "approvals": approvals or {},
     }

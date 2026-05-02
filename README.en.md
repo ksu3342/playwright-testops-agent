@@ -30,7 +30,7 @@ Test inputs often start as PRDs, rough notes, or half-structured requirement tex
 - After an optional `normalize` step, the implemented flow is `parse -> extract -> generate -> run -> report`.
 - The CLI already exposes `normalize`, `parse`, `generate`, `run`, and `report`.
 - FastAPI already exposes health checks, pipeline execution, run lookup, and artifact lookup.
-- Agent run endpoints now accept either `input_path` or `task_text`, record traces, analyze information needs, pause for human approval, and use local file-backed KB ingest/search with an optional LangChain Core local retriever adapter.
+- Agent run endpoints now accept either `input_path` or `task_text`, record traces, analyze information needs, pause for human approval, use local file-backed KB ingest/search with an optional LangChain Core local retriever adapter, and support optional LLM-assisted test-plan drafting with deterministic guardrails.
 - Generated scaffolds, run summaries, and report drafts are written to `generated/tests/`, `data/runs/`, and `generated/reports/` at runtime. Those outputs are reproducible locally but are not committed as fixed public samples.
 - The repo already includes [Docker packaging](./Dockerfile), [docker-compose.yml](./docker-compose.yml), and [API integration tests](./tests/integration/test_api.py).
 
@@ -84,13 +84,15 @@ The report path under `generated/reports/` is also a runtime output, not a fixed
 - [demo_app/main.py](./demo_app/main.py) is the local demo target used by the executable login flow.
 - [app/rag/langchain_retriever.py](./app/rag/langchain_retriever.py) wraps the local KB documents with LangChain Core `Document` / `BaseRetriever` interfaces while preserving deterministic local scoring.
 - [app/agent/tools.py](./app/agent/tools.py) exposes the controlled workflow functions as Python tools and provides a LangChain-compatible `StructuredTool` export for interface evidence.
+- Optional `planning_backend=llm_assisted` asks a configured planner provider for reviewable test-plan JSON only; generated scripts and execution still go through controlled deterministic tools.
 - [tests/unit/test_generator.py](./tests/unit/test_generator.py), [tests/unit/test_runner.py](./tests/unit/test_runner.py), and [tests/demo/test_demo_app.py](./tests/demo/test_demo_app.py) verify generator, runner, and demo behavior.
 - [tests/integration/test_api.py](./tests/integration/test_api.py) and [tests/integration/test_pipeline.py](./tests/integration/test_pipeline.py) cover the API-facing and pipeline-facing integration paths.
 
 ## Why It Is Designed This Way
 
 - The current implementation remains CLI-first, and the FastAPI layer is only a light wrapper over the same Python core functions.
-- `normalize` is intentionally optional and remains the only LLM-assisted step.
+- `normalize` is intentionally optional and remains outside the deterministic execution chain.
+- Optional LLM-assisted planning is opt-in through `planning_backend=llm_assisted`; the default remains deterministic.
 - The deterministic core flow stays `parse -> extract -> generate -> run -> report`, which keeps behavior easier to inspect and explain.
 - Artifacts remain file-backed so run history and reports can be checked directly from the repository workspace.
 - KB retrieval is file-backed by default: `data/kb/index.json` stores the index and `data/kb/uploaded/` stores API-ingested content. `backend=langchain_local` runs the same local KB through LangChain Core document/retriever interfaces, not embeddings.
@@ -103,7 +105,7 @@ The report path under `generated/reports/` is also a runtime output, not a fixed
 - Persistence is still file-backed, not Redis-backed, MySQL-backed, or otherwise database-backed.
 - No frontend, authentication layer, multi-agent system, or full testing platform is claimed here.
 - Local KB search is deterministic file retrieval. The optional `langchain_local` backend is a LangChain Core local `Document` / `BaseRetriever` adapter, not a production vector database, embedding pipeline, or LangChain vector store.
-- Test-plan drafting is a deterministic scaffold, not LLM planning.
+- Test-plan drafting is deterministic by default. Optional LLM-assisted drafting returns reviewable JSON only; it does not execute tests, choose selectors, or control the browser.
 - Trace persistence is not a LangGraph-native durable checkpoint backend.
 - This is not a queue-backed async execution system or a production-grade platform.
 
@@ -142,14 +144,14 @@ POST /api/v1/kb/ingest
 GET  /api/v1/kb/search?query=login%20selector&max_results=5&backend=langchain_local
 ```
 
-`/approve` is a compatibility alias for `/approvals`. KB ingest accepts `source_type`, optional `source_path`, optional `content`, and optional `metadata`; content uploads are written under `data/kb/uploaded/` and indexed through `data/kb/index.json`. KB search and agent runs return `retrieval_backend` and `retrieval_implementation` so the trace shows whether the deterministic file backend or LangChain local adapter was used.
+`/approve` is a compatibility alias for `/approvals`. KB ingest accepts `source_type`, optional `source_path`, optional `content`, and optional `metadata`; content uploads are written under `data/kb/uploaded/` and indexed through `data/kb/index.json`. KB search and agent runs return retrieval metadata, and agent runs also return `planning_backend` / `planning_implementation` so the trace shows whether deterministic or LLM-assisted planning was used.
 
 Agent runs can be created from a tracked PRD path or a task payload:
 
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8000/api/v1/agent-runs" `
   -H "Content-Type: application/json" `
-  -d '{"task_text":"Verify login happy path with valid credentials.","target_url":"/login","module":"login","constraints":["Use selector contracts"],"retrieval_backend":"langchain_local"}'
+  -d '{"task_text":"Verify login happy path with valid credentials.","target_url":"/login","module":"login","constraints":["Use selector contracts"],"retrieval_backend":"langchain_local","planning_backend":"llm_assisted"}'
 ```
 
 The list endpoint reads local `data/agent_runs/*/trace.json` files and supports `status`, `final_status`, `module`, and `limit` filters.

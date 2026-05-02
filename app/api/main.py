@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from app.agent.orchestrator import continue_agent_run, run_agent_task
 from app.agent.tracer import AGENT_RUNS_DIR
+from app.agent.tools import validate_planning_backend
 from app.api.schemas import (
     AgentRunRequest,
     AgentRunListResponse,
@@ -339,6 +340,7 @@ def create_agent_run(request: AgentRunRequest) -> AgentRunResponse:
     input_path, task = _resolve_agent_run_input(request)
     try:
         retrieval_backend = validate_retrieval_backend(request.retrieval_backend)
+        planning_backend = validate_planning_backend(request.planning_backend)
     except ValueError as exc:
         _raise_bad_request(exc)
     result = run_agent_task(
@@ -346,6 +348,7 @@ def create_agent_run(request: AgentRunRequest) -> AgentRunResponse:
         approval_mode=request.approval_mode,
         task=task or None,
         retrieval_backend=retrieval_backend,
+        planning_backend=planning_backend,
     )
     return AgentRunResponse(**result)
 

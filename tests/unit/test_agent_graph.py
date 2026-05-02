@@ -24,6 +24,9 @@ def _fake_test_plan() -> dict[str, object]:
         "feature_name": "Fake",
         "page_url": "/fake",
         "planning_strategy": "deterministic_scaffold",
+        "planning_backend": "deterministic",
+        "planning_implementation": "deterministic_test_plan_scaffold",
+        "planner_provider": None,
         "retrieved_source_paths": ["data/contracts/demo_app_selectors.json"],
         "retrieved_sources": [{"source_type": "selector_contract", "source_path": "data/contracts/demo_app_selectors.json"}],
         "test_cases": [{"id": "TP-001", "title": "Fake case"}],
@@ -47,9 +50,15 @@ def _patch_passed_plan_tools(monkeypatch) -> None:
         assert backend == "file_lexical"
         return _fake_retrieval()
 
-    def fake_draft_test_plan(input_path: str, testing_context=None, information_needs=None) -> dict[str, object]:
+    def fake_draft_test_plan(
+        input_path: str,
+        testing_context=None,
+        information_needs=None,
+        planning_backend: str = "deterministic",
+    ) -> dict[str, object]:
         assert testing_context["result_count"] == 1
         assert information_needs["required_context_types"]
+        assert planning_backend == "deterministic"
         return _fake_test_plan()
 
     def fake_validate_test_plan(test_plan: dict[str, object]) -> dict[str, object]:
@@ -104,6 +113,8 @@ def test_langgraph_agent_graph_runs_passed_path_with_expected_nodes(monkeypatch)
     assert state["final_output"]["test_plan"]["feature_name"] == "Fake"
     assert state["final_output"]["plan_validation"]["status"] == "passed"
     assert state["final_output"]["planning_strategy"] == "deterministic_scaffold"
+    assert state["final_output"]["planning_backend"] == "deterministic"
+    assert state["final_output"]["planning_implementation"] == "deterministic_test_plan_scaffold"
     assert state["final_output"]["checkpoint_mode"] == "trace_resume_state"
     assert state["final_output"]["run_summary"]["run_id"] == "fake_passed_run"
     assert state["final_output"]["retrieval_backend"] == "file_lexical"

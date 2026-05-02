@@ -1,7 +1,11 @@
 from pathlib import Path
+import json
+
+import pytest
 
 from app.agent.tools import (
     TOOL_REGISTRY,
+    PlanningError,
     analyze_information_needs,
     collect_run_evidence,
     create_report,
@@ -15,6 +19,15 @@ from app.agent.tools import (
     run_test,
     validate_test_plan,
 )
+from app.llm.base import BaseLLMProvider, LLMResponse
+
+
+class StaticPlannerProvider(BaseLLMProvider):
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+    def generate(self, prompt: str) -> LLMResponse:
+        return LLMResponse(content=self.content)
 
 
 def test_agent_tool_registry_exposes_expected_tools() -> None:
@@ -89,6 +102,8 @@ def test_draft_and_validate_test_plan_tools_return_reviewable_payload() -> None:
     assert test_plan["feature_name"] == "User Login"
     assert test_plan["page_url"] == "/login"
     assert test_plan["planning_strategy"] == "deterministic_scaffold"
+    assert test_plan["planning_backend"] == "deterministic"
+    assert test_plan["planning_implementation"] == "deterministic_test_plan_scaffold"
     assert "selector_contract" in information_needs["required_context_types"]
     assert test_plan["test_cases"][0]["id"] == "TP-001"
     assert "data/contracts/demo_app_selectors.json" in test_plan["retrieved_source_paths"]
@@ -98,6 +113,85 @@ def test_draft_and_validate_test_plan_tools_return_reviewable_payload() -> None:
         "can_generate": True,
         "reason": "test_plan_ready",
     }
+
+
+def test_llm_assisted_test_plan_uses_reviewable_json_without_model_owned_sources() -> None:
+    information_needs = analyze_information_needs("data/inputs/sample_prd_login.md")
+    retrieval_result = retrieve_testing_context(
+        "data/inputs/sample_prd_login.md",
+        max_results=5,
+        source_types=information_needs["required_context_types"],
+        query=information_needs["retrieval_query"],
+    )
+    provider_payload = {
+        "feature_name": "User Login",
+        "page_url": "/login",
+        "retrieved_sources": [],
+        "test_cases": [
+            {
+                "id": "TP-LLM-001",
+                "title": "Review login happy path with retrieved contracts",
+                "type": "happy_path",
+                "preconditions": ["Selector and fixture contracts have been retrieved"],
+                "steps": ["Open /login", "Submit valid credentials", "Check dashboard redirect"],
+                "expected_result": "The user reaches the dashboard without blocking validation.",
+                "source_sections": ["llm_assisted_plan"],
+                "rationale": "Covers the main login task using retrieved context as evidence.",
+            }
+        ],
+        "risks": ["llm_plan_requires_human_review"],
+        "missing_inputs": [],
+    }
+
+    test_plan = draft_test_plan(
+        "data/inputs/sample_prd_login.md",
+        testing_context=retrieval_result,
+        information_needs=information_needs,
+        planning_backend="llm_assisted",
+        planner_provider_name="static",
+        planner_provider=StaticPlannerProvider(json.dumps(provider_payload)),
+    )
+
+    assert test_plan["planning_strategy"] == "llm_assisted_reviewable_plan"
+    assert test_plan["planning_backend"] == "llm_assisted"
+    assert test_plan["planning_implementation"] == "llm_assisted_reviewable_json"
+    assert test_plan["planner_provider"] == "static"
+    assert test_plan["test_cases"][0]["id"] == "TP-LLM-001"
+    assert "data/contracts/demo_app_selectors.json" in test_plan["retrieved_source_paths"]
+    assert test_plan["retrieved_sources"]
+
+
+def test_llm_assisted_test_plan_fails_on_invalid_json() -> None:
+    with pytest.raises(PlanningError, match="invalid JSON"):
+        draft_test_plan(
+            "data/inputs/sample_prd_login.md",
+            planning_backend="llm_assisted",
+            planner_provider=StaticPlannerProvider("not json"),
+        )
+
+
+def test_llm_assisted_test_plan_fails_on_missing_required_field() -> None:
+    with pytest.raises(PlanningError, match="missing required field: test_cases"):
+        draft_test_plan(
+            "data/inputs/sample_prd_login.md",
+            planning_backend="llm_assisted",
+            planner_provider=StaticPlannerProvider(
+                json.dumps(
+                    {
+                        "feature_name": "User Login",
+                        "page_url": "/login",
+                        "retrieved_sources": [],
+                        "risks": [],
+                        "missing_inputs": [],
+                    }
+                )
+            ),
+        )
+
+
+def test_draft_test_plan_rejects_invalid_planning_backend() -> None:
+    with pytest.raises(ValueError, match="Unsupported planning backend"):
+        draft_test_plan("data/inputs/sample_prd_login.md", planning_backend="not_a_backend")
 
 
 def test_validate_test_plan_blocks_missing_required_review_inputs() -> None:

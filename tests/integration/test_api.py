@@ -37,13 +37,18 @@ def _create_agent_run(input_path: str) -> dict[str, object]:
     return response.json()
 
 
-def _create_manual_agent_run(input_path: str, retrieval_backend: str = "file_lexical") -> dict[str, object]:
+def _create_manual_agent_run(
+    input_path: str,
+    retrieval_backend: str = "file_lexical",
+    planning_backend: str = "deterministic",
+) -> dict[str, object]:
     response = client.post(
         "/api/v1/agent-runs",
         json={
             "input_path": input_path,
             "approval_mode": "manual",
             "retrieval_backend": retrieval_backend,
+            "planning_backend": planning_backend,
         },
     )
 
@@ -368,6 +373,8 @@ def test_agent_run_endpoint_executes_login_flow_and_returns_trace_path() -> None
     assert payload["test_plan"]["feature_name"] == "User Login"
     assert payload["plan_validation"]["status"] == "passed"
     assert payload["planning_strategy"] == "deterministic_scaffold"
+    assert payload["planning_backend"] == "deterministic"
+    assert payload["planning_implementation"] == "deterministic_test_plan_scaffold"
     assert payload["retrieval_backend"] == "file_lexical"
     assert payload["retrieval_implementation"] == "deterministic_file_lexical"
     assert payload["run_summary"]["run_id"] == payload["run_id"]
@@ -411,6 +418,49 @@ def test_agent_run_endpoint_rejects_invalid_retrieval_backend() -> None:
 
     assert response.status_code == 400
     assert "Unsupported retrieval backend" in response.json()["detail"]
+
+
+def test_agent_run_endpoint_rejects_invalid_planning_backend() -> None:
+    response = client.post(
+        "/api/v1/agent-runs",
+        json={
+            "input_path": "data/inputs/sample_prd_login.md",
+            "planning_backend": "not_a_backend",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Unsupported planning backend" in response.json()["detail"]
+
+
+def test_agent_run_endpoint_accepts_llm_assisted_planning_backend(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "mock")
+    response = client.post(
+        "/api/v1/agent-runs",
+        json={
+            "input_path": "data/inputs/sample_prd_login.md",
+            "approval_mode": "manual",
+            "planning_backend": "llm_assisted",
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["final_status"] == "waiting_for_test_plan_approval"
+    assert payload["run_id"] is None
+    assert payload["planning_strategy"] == "llm_assisted_reviewable_plan"
+    assert payload["planning_backend"] == "llm_assisted"
+    assert payload["planning_implementation"] == "llm_assisted_reviewable_json"
+    assert payload["planner_provider"] == "mock"
+    assert payload["test_plan"]["risks"]
+
+    trace_response = client.get(f"/api/v1/agent-runs/{payload['agent_run_id']}/trace")
+    trace = trace_response.json()
+
+    assert trace_response.status_code == 200
+    assert trace["input"]["planning_backend"] == "llm_assisted"
+    assert trace["final_output"]["planning_backend"] == "llm_assisted"
+    assert trace["final_output"]["planning_implementation"] == "llm_assisted_reviewable_json"
 
 
 def test_agent_run_endpoint_accepts_task_text_and_lists_by_module() -> None:
@@ -480,6 +530,8 @@ def test_agent_run_trace_endpoint_returns_tool_calls() -> None:
     assert trace["final_output"]["checkpoint_mode"] == "trace_resume_state"
     assert trace["final_output"]["retrieval_backend"] == "file_lexical"
     assert trace["final_output"]["retrieval_implementation"] == "deterministic_file_lexical"
+    assert trace["final_output"]["planning_backend"] == "deterministic"
+    assert trace["final_output"]["planning_implementation"] == "deterministic_test_plan_scaffold"
 
 
 def test_agent_run_manual_approval_flow_pauses_and_resumes() -> None:
@@ -490,6 +542,7 @@ def test_agent_run_manual_approval_flow_pauses_and_resumes() -> None:
     assert created["test_plan"]["feature_name"] == "User Login"
     assert created["retrieval_backend"] == "langchain_local"
     assert created["retrieval_implementation"] == "langchain_local_documents"
+    assert created["planning_backend"] == "deterministic"
     assert created["run_id"] is None
 
     plan_response = client.post(

@@ -5,6 +5,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from app.config import get_settings
 from app.core.collector import REPO_ROOT, RUNS_DIR
 from app.core.extractor import extract_test_points
 from app.core.generator import generate_test_script
@@ -12,7 +13,28 @@ from app.core.normalizer import normalize_requirement_file
 from app.core.parser import parse_prd
 from app.core.reporter import create_bug_report_from_run
 from app.core.runner import run_test_script
+from app.llm.base import BaseLLMProvider, LLMProviderError, LLMResponse
+from app.llm.live_provider import LiveLLMProvider
 from app.rag.retriever import retrieve_testing_context as retrieve_local_testing_context
+
+
+PLANNING_IMPLEMENTATIONS = {
+    "deterministic": "deterministic_test_plan_scaffold",
+    "llm_assisted": "llm_assisted_reviewable_json",
+}
+
+
+class PlanningError(RuntimeError):
+    """Raised when optional LLM-assisted planning cannot produce a valid plan."""
+
+
+class MockTestPlanProvider(BaseLLMProvider):
+    """Deterministic stand-in for the optional planner LLM in local tests."""
+
+    def generate(self, prompt: str) -> LLMResponse:
+        seed_plan = _extract_tagged_json(prompt, "SEED_TEST_PLAN_JSON")
+        seed_plan["risks"] = sorted(set(seed_plan.get("risks", []) + ["llm_assisted_review_required"]))
+        return LLMResponse(content=json.dumps(seed_plan, ensure_ascii=False, sort_keys=True))
 
 
 def _relative_to_repo(path: Path) -> str:
@@ -61,6 +83,13 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)
+
+
+def validate_planning_backend(planning_backend: str) -> str:
+    if planning_backend not in PLANNING_IMPLEMENTATIONS:
+        expected = ", ".join(sorted(PLANNING_IMPLEMENTATIONS))
+        raise ValueError(f"Unsupported planning backend: {planning_backend}. Expected one of: {expected}.")
+    return planning_backend
 
 
 def normalize_requirement(input_path: str, provider_name: Optional[str] = None) -> dict[str, Any]:
@@ -242,6 +271,163 @@ def _retrieved_sources(testing_context: Optional[dict[str, Any]]) -> list[dict[s
     return sources
 
 
+def _select_planner_provider(
+    provider_name: Optional[str] = None,
+    provider: Optional[BaseLLMProvider] = None,
+) -> tuple[BaseLLMProvider, str]:
+    if provider is not None:
+        return provider, str(provider_name or provider.__class__.__name__)
+
+    settings = get_settings()
+    selected_name = (provider_name or settings.llm_provider or "mock").strip().lower()
+    if selected_name == "mock":
+        return MockTestPlanProvider(), "mock"
+    if selected_name == "live":
+        try:
+            return LiveLLMProvider.from_settings(settings), "live"
+        except LLMProviderError as exc:
+            raise PlanningError(str(exc)) from exc
+    raise PlanningError(f"Unsupported planner provider '{selected_name}'. Supported providers: mock, live.")
+
+
+def _extract_tagged_json(text: str, tag_name: str) -> dict[str, Any]:
+    start_marker = f"<<<{tag_name}>>>"
+    end_marker = f"<<<END_{tag_name}>>>"
+    start_index = text.find(start_marker)
+    end_index = text.find(end_marker)
+    if start_index < 0 or end_index < 0 or end_index <= start_index:
+        raise PlanningError(f"Planner prompt is missing {tag_name} payload.")
+    payload_text = text[start_index + len(start_marker) : end_index].strip()
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError as exc:
+        raise PlanningError(f"Planner prompt {tag_name} payload is invalid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise PlanningError(f"Planner prompt {tag_name} payload must be a JSON object.")
+    return payload
+
+
+def _extract_json_object(response_text: str) -> dict[str, Any]:
+    text = response_text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise PlanningError("Planner provider returned invalid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise PlanningError("Planner provider returned a non-object JSON payload.")
+    return payload
+
+
+def _compact_retrieved_context(testing_context: Optional[dict[str, Any]]) -> dict[str, Any]:
+    if not testing_context:
+        return {"result_count": 0, "results": []}
+
+    results = testing_context.get("results")
+    compact_results: list[dict[str, Any]] = []
+    if isinstance(results, list):
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            compact_results.append(
+                {
+                    "source_type": result.get("source_type"),
+                    "source_path": result.get("source_path"),
+                    "score": result.get("score"),
+                    "excerpt": result.get("excerpt"),
+                    "metadata": result.get("metadata", {}),
+                }
+            )
+
+    return {
+        "retrieval_backend": testing_context.get("retrieval_backend"),
+        "retrieval_implementation": testing_context.get("retrieval_implementation"),
+        "result_count": testing_context.get("result_count", len(compact_results)),
+        "results": compact_results,
+    }
+
+
+def _build_planner_prompt(
+    document: Any,
+    seed_plan: dict[str, Any],
+    testing_context: Optional[dict[str, Any]],
+    information_needs: Optional[dict[str, Any]],
+) -> str:
+    payload = {
+        "document": _json_safe(document),
+        "information_needs": information_needs or {},
+        "retrieved_context": _compact_retrieved_context(testing_context),
+        "seed_test_plan": seed_plan,
+    }
+    return (
+        "Draft a reviewable JSON test plan for a Playwright TestOps agent.\n"
+        "Return only one JSON object. Do not use markdown or code fences.\n"
+        "Keep the existing schema and do not invent selectors, credentials, URLs, or external facts.\n"
+        "Use retrieved_sources only as evidence references; tool execution remains outside the planner.\n"
+        "Required top-level fields: feature_name, page_url, test_cases, risks, missing_inputs, retrieved_sources.\n"
+        "Each test case must keep: id, title, type, preconditions, steps, expected_result, source_sections, rationale.\n\n"
+        "<<<PLANNER_CONTEXT_JSON>>>\n"
+        f"{json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)}\n"
+        "<<<END_PLANNER_CONTEXT_JSON>>>\n\n"
+        "<<<SEED_TEST_PLAN_JSON>>>\n"
+        f"{json.dumps(seed_plan, ensure_ascii=False, indent=2, sort_keys=True)}\n"
+        "<<<END_SEED_TEST_PLAN_JSON>>>"
+    )
+
+
+def _validate_llm_plan_payload(payload: dict[str, Any]) -> None:
+    required_fields = {
+        "feature_name": str,
+        "page_url": (str, type(None)),
+        "test_cases": list,
+        "risks": list,
+        "missing_inputs": list,
+        "retrieved_sources": list,
+    }
+    for field, expected_type in required_fields.items():
+        if field not in payload:
+            raise PlanningError(f"Planner provider output is missing required field: {field}")
+        if not isinstance(payload[field], expected_type):
+            raise PlanningError(f"Planner provider output field '{field}' has an invalid type.")
+
+    for index, test_case in enumerate(payload["test_cases"], start=1):
+        if not isinstance(test_case, dict):
+            raise PlanningError(f"Planner provider test case #{index} is not an object.")
+        for field in ("id", "title", "type", "preconditions", "steps", "expected_result", "source_sections", "rationale"):
+            if field not in test_case:
+                raise PlanningError(f"Planner provider test case #{index} is missing required field: {field}")
+
+
+def _apply_llm_plan_payload(
+    seed_plan: dict[str, Any],
+    payload: dict[str, Any],
+    planner_provider: str,
+) -> dict[str, Any]:
+    _validate_llm_plan_payload(payload)
+    return {
+        **seed_plan,
+        "feature_name": payload["feature_name"],
+        "page_url": payload["page_url"],
+        "planning_strategy": "llm_assisted_reviewable_plan",
+        "planning_backend": "llm_assisted",
+        "planning_implementation": PLANNING_IMPLEMENTATIONS["llm_assisted"],
+        "planner_provider": planner_provider,
+        "test_cases": payload["test_cases"],
+        "risks": payload["risks"],
+        "missing_inputs": payload["missing_inputs"],
+        # Keep evidence references bound to retrieved context, not model output.
+        "retrieved_source_paths": seed_plan["retrieved_source_paths"],
+        "retrieved_sources": seed_plan["retrieved_sources"],
+    }
+
+
 def _has_source_type(test_plan: dict[str, Any], source_type: str) -> bool:
     retrieved_sources = test_plan.get("retrieved_sources")
     if not isinstance(retrieved_sources, list):
@@ -253,7 +439,11 @@ def draft_test_plan(
     input_path: str,
     testing_context: Optional[dict[str, Any]] = None,
     information_needs: Optional[dict[str, Any]] = None,
+    planning_backend: str = "deterministic",
+    planner_provider_name: Optional[str] = None,
+    planner_provider: Optional[BaseLLMProvider] = None,
 ) -> dict[str, Any]:
+    planning_backend = validate_planning_backend(planning_backend)
     document = parse_prd(input_path)
     test_points = extract_test_points(document)
     retrieved_sources = _retrieved_sources(testing_context)
@@ -273,11 +463,14 @@ def draft_test_plan(
     if not any(source["source_type"] == "test_data_contract" for source in retrieved_sources):
         risks.append("test_data_contract_not_retrieved")
 
-    return {
+    seed_plan = {
         "input_path": _relative_to_repo(_resolve_repo_path(input_path)),
         "feature_name": document.feature_name,
         "page_url": document.page_url,
         "planning_strategy": "deterministic_scaffold",
+        "planning_backend": "deterministic",
+        "planning_implementation": PLANNING_IMPLEMENTATIONS["deterministic"],
+        "planner_provider": None,
         "information_needs": information_needs or {},
         "retrieved_source_paths": retrieved_source_paths,
         "retrieved_sources": retrieved_sources,
@@ -297,6 +490,20 @@ def draft_test_plan(
         "risks": risks,
         "missing_inputs": missing_inputs,
     }
+    if planning_backend == "deterministic":
+        return seed_plan
+
+    provider, resolved_provider_name = _select_planner_provider(
+        provider_name=planner_provider_name,
+        provider=planner_provider,
+    )
+    prompt = _build_planner_prompt(document, seed_plan, testing_context, information_needs)
+    try:
+        response = provider.generate(prompt)
+    except LLMProviderError as exc:
+        raise PlanningError(str(exc)) from exc
+    payload = _extract_json_object(response.content)
+    return _apply_llm_plan_payload(seed_plan, payload, resolved_provider_name)
 
 
 def validate_test_plan(test_plan: dict[str, Any]) -> dict[str, Any]:
@@ -415,7 +622,7 @@ TOOL_DESCRIPTIONS = {
     "parse_requirement": "Parse a PRD or generated task markdown file into structured requirement data.",
     "analyze_information_needs": "Analyze which testing context sources are needed before planning.",
     "retrieve_testing_context": "Retrieve local testing context from product docs, contracts, runs, and reports.",
-    "draft_test_plan": "Draft a deterministic test plan from requirements and retrieved context.",
+    "draft_test_plan": "Draft a reviewable test plan from requirements and retrieved context.",
     "validate_test_plan": "Validate that a test plan has enough reviewed inputs for generation.",
     "generate_test": "Generate a Playwright pytest script through the controlled generator.",
     "run_test": "Run a generated or fixture pytest script and collect execution artifacts.",

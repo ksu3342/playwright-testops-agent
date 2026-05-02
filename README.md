@@ -87,7 +87,7 @@ python -m app.main report --input data/runs/<run_id>
 ## 为什么这样设计
 
 - 当前实现仍然是 CLI-first，FastAPI 层只是对同一套 Python 核心函数的轻量包装。
-- `normalize` 被刻意限定为可选前置步骤，也是当前唯一的 LLM 辅助步骤。
+- `normalize` 被刻意限定为可选前置步骤；测试计划默认 deterministic，可选 `planning_backend=llm_assisted` 只生成可审核 JSON，不执行测试。
 - 真正的确定性核心流程保持为 `parse -> extract -> generate -> run -> report`，便于解释和验证。
 - 运行产物和报告继续直接落盘，避免为了这个仓库的当前范围引入额外基础设施。
 - `/api/v1/run` 仍然保持同步执行，run 状态和 artifact 更容易核对。
@@ -98,6 +98,7 @@ python -m app.main report --input data/runs/<run_id>
 - 当前持久化仍然是文件系统，不是 Redis、MySQL 或其他数据库驱动的平台。
 - 这里没有前端、认证层、多 Agent 编排或完整测试平台的声称。
 - KB 检索默认是 deterministic file-backed；可选 `langchain_local` 只是 LangChain Core `Document` / `BaseRetriever` 本地适配层，不是生产级向量库或 embedding pipeline。
+- 可选 LLM-assisted planning 不代表模型控制浏览器、选择 selector 或自动发布缺陷。
 - 这也不是队列驱动的异步执行系统或生产级平台。
 
 ## run_id 现在能证明什么
