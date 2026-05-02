@@ -18,6 +18,13 @@ def _create_run(input_path: str) -> dict[str, object]:
     return response.json()
 
 
+def _create_agent_run(input_path: str) -> dict[str, object]:
+    response = client.post("/api/v1/agent-runs", json={"input_path": input_path})
+
+    assert response.status_code == 200
+    return response.json()
+
+
 def test_healthz_returns_ok() -> None:
     response = client.get("/healthz")
 
@@ -260,3 +267,56 @@ def test_run_lookup_endpoints_return_404_for_missing_run() -> None:
 
     assert detail_response.status_code == 404
     assert artifacts_response.status_code == 404
+
+
+def test_agent_run_endpoint_executes_login_flow_and_returns_trace_path() -> None:
+    payload = _create_agent_run("data/inputs/sample_prd_login.md")
+
+    assert payload["final_status"] == "passed"
+    assert payload["script_path"] == "generated/tests/test_login_generated.py"
+    assert payload["run_id"]
+    assert payload["run_dir"].startswith("data/runs/")
+    assert payload["artifact_paths"]["summary"].endswith("summary.json")
+    assert payload["trace_path"].startswith("data/agent_runs/")
+    assert Path(payload["trace_path"]).exists()
+
+
+def test_agent_run_summary_endpoint_returns_saved_trace_summary() -> None:
+    payload = _create_agent_run("data/inputs/sample_prd_login.md")
+
+    response = client.get(f"/api/v1/agent-runs/{payload['agent_run_id']}")
+    summary = response.json()
+
+    assert response.status_code == 200
+    assert summary["agent_run_id"] == payload["agent_run_id"]
+    assert summary["status"] == "completed"
+    assert summary["final_status"] == "passed"
+    assert summary["final_output"]["run_id"] == payload["run_id"]
+    assert summary["final_output"]["trace_path"] == payload["trace_path"]
+    assert summary["artifact_paths"]["trace"] == payload["trace_path"]
+
+
+def test_agent_run_trace_endpoint_returns_tool_calls() -> None:
+    payload = _create_agent_run("data/inputs/sample_prd_login.md")
+
+    response = client.get(f"/api/v1/agent-runs/{payload['agent_run_id']}/trace")
+    trace = response.json()
+
+    assert response.status_code == 200
+    assert trace["agent_run_id"] == payload["agent_run_id"]
+    assert trace["final_status"] == "passed"
+
+    tool_calls = trace["tool_calls"]
+    assert [call["tool_name"] for call in tool_calls] == ["parse_requirement", "generate_test", "run_test"]
+    assert all(call["status"] == "succeeded" for call in tool_calls)
+    assert trace["final_output"]["artifact_paths"]["summary"].endswith("summary.json")
+
+
+def test_agent_run_lookup_endpoints_return_404_for_missing_agent_run() -> None:
+    missing_agent_run_id = "missing_agent_run_for_api_lookup"
+
+    summary_response = client.get(f"/api/v1/agent-runs/{missing_agent_run_id}")
+    trace_response = client.get(f"/api/v1/agent-runs/{missing_agent_run_id}/trace")
+
+    assert summary_response.status_code == 404
+    assert trace_response.status_code == 404

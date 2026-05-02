@@ -10,7 +10,13 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
+from app.agent.orchestrator import run_agent_task
+from app.agent.tracer import AGENT_RUNS_DIR
 from app.api.schemas import (
+    AgentRunRequest,
+    AgentRunResponse,
+    AgentRunSummaryResponse,
+    AgentRunTraceResponse,
     GenerateResponse,
     HealthResponse,
     NormalizeRequest,
@@ -126,6 +132,60 @@ def _load_run_response(run_id: str) -> RunResponse:
         raise HTTPException(status_code=500, detail=f"Run '{run_id}' summary is missing required fields.") from exc
 
 
+def _resolve_agent_trace_path(agent_run_id: str) -> Path:
+    agent_run_dir = (AGENT_RUNS_DIR / agent_run_id).resolve()
+    agent_runs_root = AGENT_RUNS_DIR.resolve()
+    trace_path = agent_run_dir / "trace.json"
+
+    if agent_run_dir.parent != agent_runs_root or not trace_path.is_file():
+        raise HTTPException(status_code=404, detail=f"Agent run '{agent_run_id}' was not found.")
+
+    return trace_path
+
+
+def _load_agent_trace_payload(agent_run_id: str) -> dict[str, object]:
+    trace_path = _resolve_agent_trace_path(agent_run_id)
+    try:
+        payload = json.loads(trace_path.read_text(encoding="utf-8"))
+    except (JSONDecodeError, OSError) as exc:
+        raise HTTPException(status_code=500, detail=f"Agent run '{agent_run_id}' trace could not be read.") from exc
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=500, detail=f"Agent run '{agent_run_id}' trace is invalid.")
+
+    return payload
+
+
+def _agent_artifact_paths(payload: dict[str, object]) -> dict[str, str]:
+    artifact_paths = payload.get("artifact_paths")
+    if not isinstance(artifact_paths, dict):
+        return {}
+    return {str(key): str(value) for key, value in artifact_paths.items()}
+
+
+def _agent_summary_payload(payload: dict[str, object]) -> dict[str, object]:
+    input_payload = payload.get("input")
+    if not isinstance(input_payload, dict):
+        input_payload = {}
+
+    final_output = payload.get("final_output")
+    if final_output is not None and not isinstance(final_output, dict):
+        final_output = {"value": str(final_output)}
+
+    return {
+        "agent_run_id": str(payload.get("agent_run_id", "unknown_agent_run")),
+        "status": str(payload.get("status", "unknown")),
+        "final_status": payload.get("final_status"),
+        "input": input_payload,
+        "start_time": str(payload.get("start_time", "")),
+        "end_time": payload.get("end_time"),
+        "duration_seconds": payload.get("duration_seconds"),
+        "final_output": final_output,
+        "artifact_paths": _agent_artifact_paths(payload),
+        "error": payload.get("error"),
+    }
+
+
 @app.get("/healthz", response_model=HealthResponse)
 def healthz() -> HealthResponse:
     return HealthResponse(status="ok")
@@ -165,6 +225,36 @@ def get_run_artifacts(run_id: str) -> RunArtifactsResponse:
         lineage=lineage,
         report_path=payload.get("report_path"),
     )
+
+
+@app.post("/api/v1/agent-runs", response_model=AgentRunResponse)
+def create_agent_run(request: AgentRunRequest) -> AgentRunResponse:
+    result = run_agent_task(request.input_path)
+    return AgentRunResponse(**result)
+
+
+@app.get("/api/v1/agent-runs/{agent_run_id}", response_model=AgentRunSummaryResponse)
+def get_agent_run(agent_run_id: str) -> AgentRunSummaryResponse:
+    payload = _load_agent_trace_payload(agent_run_id)
+    try:
+        return AgentRunSummaryResponse(**_agent_summary_payload(payload))
+    except ValidationError as exc:
+        raise HTTPException(status_code=500, detail=f"Agent run '{agent_run_id}' trace is missing required fields.") from exc
+
+
+@app.get("/api/v1/agent-runs/{agent_run_id}/trace", response_model=AgentRunTraceResponse)
+def get_agent_run_trace(agent_run_id: str) -> AgentRunTraceResponse:
+    payload = _load_agent_trace_payload(agent_run_id)
+    trace_payload = _agent_summary_payload(payload)
+    tool_calls = payload.get("tool_calls")
+    if not isinstance(tool_calls, list):
+        raise HTTPException(status_code=500, detail=f"Agent run '{agent_run_id}' trace is missing tool calls.")
+    trace_payload["tool_calls"] = tool_calls
+
+    try:
+        return AgentRunTraceResponse(**trace_payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=500, detail=f"Agent run '{agent_run_id}' trace is missing required fields.") from exc
 
 
 @app.post("/api/v1/normalize", response_model=NormalizeResponse)

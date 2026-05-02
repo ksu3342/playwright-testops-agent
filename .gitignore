@@ -191,5 +191,8 @@ data/normalized/*.md
 data/api_inputs/*
 !data/api_inputs/.gitkeep
 
+data/agent_runs/*
+!data/agent_runs/.gitkeep
+
 # Local session handoff notes
 SESSION_HANDOFF_PHASE_6_5.json

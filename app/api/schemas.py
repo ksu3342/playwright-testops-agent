@@ -1,6 +1,6 @@
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TextInputRequest(BaseModel):
@@ -18,6 +18,10 @@ class RunRequest(BaseModel):
 
 
 class ReportRequest(BaseModel):
+    input_path: str
+
+
+class AgentRunRequest(BaseModel):
     input_path: str
 
 
@@ -106,3 +110,34 @@ class RunArtifactsResponse(BaseModel):
     artifact_paths: dict[str, str]
     lineage: Optional[dict[str, Optional[str]]] = None
     report_path: Optional[str] = None
+
+
+class AgentRunResponse(BaseModel):
+    agent_run_id: str
+    final_status: str
+    input_path: Optional[str] = None
+    script_path: Optional[str] = None
+    run_id: Optional[str] = None
+    run_dir: Optional[str] = None
+    run_status: Optional[str] = None
+    artifact_paths: dict[str, str] = Field(default_factory=dict)
+    report_path: Optional[str] = None
+    trace_path: str
+    error: Optional[str] = None
+
+
+class AgentRunSummaryResponse(BaseModel):
+    agent_run_id: str
+    status: str
+    final_status: Optional[str] = None
+    input: dict[str, Any]
+    start_time: str
+    end_time: Optional[str] = None
+    duration_seconds: Optional[float] = None
+    final_output: Optional[dict[str, Any]] = None
+    artifact_paths: dict[str, str]
+    error: Optional[str] = None
+
+
+class AgentRunTraceResponse(AgentRunSummaryResponse):
+    tool_calls: list[dict[str, Any]]
