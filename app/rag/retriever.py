@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from app.core.collector import REPO_ROOT, RUNS_DIR
+from app.rag.ingest import KB_INDEX_PATH, load_kb_index
 
 
 SUPPORTED_TEXT_SUFFIXES = {".md", ".txt", ".json"}
@@ -22,6 +23,7 @@ SOURCE_TYPE_PRIORITY = {
     "test_guideline": 15,
     "run_history": 5,
     "bug_report": 0,
+    "note": 0,
 }
 
 
@@ -153,11 +155,78 @@ def _load_document(source: KnowledgeSource, path: Path) -> Optional[KnowledgeDoc
     )
 
 
+def _resolve_indexed_path(path: str) -> Optional[Path]:
+    candidate = Path(path)
+    resolved = candidate.resolve() if candidate.is_absolute() else (REPO_ROOT / candidate).resolve()
+    repo_root = REPO_ROOT.resolve()
+    if resolved != repo_root and repo_root not in resolved.parents:
+        return None
+    if not resolved.is_file() or resolved.suffix.lower() not in SUPPORTED_TEXT_SUFFIXES:
+        return None
+    return resolved
+
+
+def _iter_index_documents() -> Iterable[KnowledgeDocument]:
+    try:
+        index = load_kb_index(KB_INDEX_PATH)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return ()
+
+    documents: list[KnowledgeDocument] = []
+    for record in index["documents"]:
+        source_type = record.get("source_type")
+        source_path = record.get("source_path")
+        if not isinstance(source_type, str) or not isinstance(source_path, str):
+            continue
+
+        resolved_path = _resolve_indexed_path(source_path)
+        if resolved_path is None:
+            continue
+
+        try:
+            text = _read_text(resolved_path)
+        except OSError:
+            continue
+
+        metadata = record.get("metadata")
+        metadata_payload = dict(metadata) if isinstance(metadata, dict) else {}
+        metadata_payload["document_id"] = record.get("document_id")
+        metadata_payload["indexed_at"] = record.get("indexed_at")
+
+        if resolved_path.suffix.lower() == ".json":
+            inferred_source_type, json_metadata = _json_metadata(resolved_path, source_type)
+            metadata_payload = {**json_metadata, **metadata_payload}
+            if source_type not in SOURCE_TYPE_PRIORITY:
+                source_type = inferred_source_type
+
+        documents.append(
+            KnowledgeDocument(
+                source_type=source_type,
+                source_path=resolved_path,
+                text=text,
+                metadata=metadata_payload,
+            )
+        )
+    return documents
+
+
 def _iter_documents() -> Iterable[KnowledgeDocument]:
+    seen: set[tuple[str, Path]] = set()
+    for document in _iter_index_documents():
+        key = (document.source_type, document.source_path.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        yield document
+
     for source in KNOWLEDGE_SOURCES:
         for path in _iter_source_files(source):
             document = _load_document(source, path)
             if document is not None:
+                key = (document.source_type, document.source_path.resolve())
+                if key in seen:
+                    continue
+                seen.add(key)
                 yield document
 
 
@@ -200,19 +269,22 @@ def _excerpt(text: str, query_tokens: set[str]) -> str:
 
 
 def _knowledge_root_payload() -> list[dict[str, str]]:
-    return [
+    roots = [
         {
             "source_type": source.source_type,
             "root": _relative_to_repo(source.root),
         }
         for source in KNOWLEDGE_SOURCES
     ]
+    roots.append({"source_type": "kb_index", "root": _relative_to_repo(KB_INDEX_PATH)})
+    return roots
 
 
 def retrieve_testing_context(
     input_path: Optional[str] = None,
     query: Optional[str] = None,
     max_results: int = 5,
+    source_types: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Retrieve local testing context before scaffold generation.
 
@@ -222,9 +294,12 @@ def retrieve_testing_context(
     """
     query_text = _query_text(input_path, query)
     query_tokens = set(_tokenize(query_text))
+    allowed_source_types = {source_type for source_type in (source_types or []) if source_type}
     scored: list[tuple[int, KnowledgeDocument]] = []
 
     for document in _iter_documents():
+        if allowed_source_types and document.source_type not in allowed_source_types:
+            continue
         score = _score_document(query_tokens, document)
         if score > 0:
             scored.append((score, document))
@@ -274,6 +349,8 @@ def retrieve_testing_context(
     return {
         "input_path": input_path,
         "query": query if query is not None else None,
+        "source_types": sorted(allowed_source_types) if allowed_source_types else None,
+        "retrieval_backend": "file_lexical",
         "query_token_count": len(query_tokens),
         "knowledge_roots": _knowledge_root_payload(),
         "result_count": len(results),

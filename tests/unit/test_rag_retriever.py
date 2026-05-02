@@ -22,3 +22,16 @@ def test_retrieve_testing_context_keeps_results_bounded() -> None:
     assert result["result_count"] == 2
     assert len(result["results"]) == 2
     assert all(len(item["excerpt"]) <= 420 for item in result["results"])
+
+
+def test_retrieve_testing_context_filters_by_source_types() -> None:
+    result = retrieve_testing_context(
+        query="login selectors and fixture data",
+        max_results=5,
+        source_types=["selector_contract"],
+    )
+
+    assert result["source_types"] == ["selector_contract"]
+    assert result["retrieval_backend"] == "file_lexical"
+    assert result["result_count"] >= 1
+    assert {item["source_type"] for item in result["results"]} == {"selector_contract"}

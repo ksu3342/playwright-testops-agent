@@ -194,5 +194,9 @@ data/api_inputs/*
 data/agent_runs/*
 !data/agent_runs/.gitkeep
 
+data/kb/index.json
+data/kb/uploaded/*
+!data/kb/uploaded/.gitkeep
+
 # Local session handoff notes
 SESSION_HANDOFF_PHASE_6_5.json

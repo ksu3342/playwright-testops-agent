@@ -21,6 +21,7 @@ def _fake_test_plan() -> dict[str, object]:
     return {
         "feature_name": "Fake",
         "page_url": "/fake",
+        "planning_strategy": "deterministic_scaffold",
         "retrieved_source_paths": ["data/contracts/demo_app_selectors.json"],
         "retrieved_sources": [{"source_type": "selector_contract", "source_path": "data/contracts/demo_app_selectors.json"}],
         "test_cases": [{"id": "TP-001", "title": "Fake case"}],
@@ -33,21 +34,36 @@ def _patch_passed_plan_tools(monkeypatch) -> None:
     def fake_parse_requirement(input_path: str) -> dict[str, object]:
         return {"resolved_input_path": input_path, "document": {"feature_name": "Fake"}}
 
-    def fake_retrieve_testing_context(input_path: str, max_results: int = 5) -> dict[str, object]:
+    def fake_retrieve_testing_context(
+        input_path: str,
+        max_results: int = 5,
+        source_types=None,
+        query=None,
+    ) -> dict[str, object]:
+        assert source_types is not None
         return _fake_retrieval()
 
-    def fake_draft_test_plan(input_path: str, testing_context=None) -> dict[str, object]:
+    def fake_draft_test_plan(input_path: str, testing_context=None, information_needs=None) -> dict[str, object]:
         assert testing_context["result_count"] == 1
+        assert information_needs["required_context_types"]
         return _fake_test_plan()
 
     def fake_validate_test_plan(test_plan: dict[str, object]) -> dict[str, object]:
         assert test_plan["feature_name"] == "Fake"
         return {"status": "passed", "missing_inputs": [], "can_generate": True, "reason": "test_plan_ready"}
 
+    def fake_collect_run_evidence(run_reference: str) -> dict[str, object]:
+        return {
+            "queried_tools": ["get_run_summary", "get_artifacts"],
+            "run_summary": {"run_id": Path(run_reference).name, "run_dir": run_reference, "summary": {"status": "passed"}},
+            "queried_artifacts": {"run_id": Path(run_reference).name, "run_dir": run_reference, "artifact_paths": {}},
+        }
+
     monkeypatch.setattr(graph.tools, "parse_requirement", fake_parse_requirement)
     monkeypatch.setattr(graph.tools, "retrieve_testing_context", fake_retrieve_testing_context)
     monkeypatch.setattr(graph.tools, "draft_test_plan", fake_draft_test_plan)
     monkeypatch.setattr(graph.tools, "validate_test_plan", fake_validate_test_plan)
+    monkeypatch.setattr(graph.tools, "collect_run_evidence", fake_collect_run_evidence)
 
 
 def test_langgraph_agent_graph_runs_passed_path_with_expected_nodes(monkeypatch) -> None:
@@ -83,16 +99,22 @@ def test_langgraph_agent_graph_runs_passed_path_with_expected_nodes(monkeypatch)
     assert state["final_output"]["trace_path"] == "data/agent_runs/unit_graph_passed_path/trace.json"
     assert state["final_output"]["test_plan"]["feature_name"] == "Fake"
     assert state["final_output"]["plan_validation"]["status"] == "passed"
+    assert state["final_output"]["planning_strategy"] == "deterministic_scaffold"
+    assert state["final_output"]["checkpoint_mode"] == "trace_resume_state"
+    assert state["final_output"]["run_summary"]["run_id"] == "fake_passed_run"
 
     trace = _load_trace(state["final_output"]["trace_path"])
     assert [call["tool_name"] for call in trace["tool_calls"]] == [
         "parse_requirement",
+        "analyze_information_needs",
         "retrieve_testing_context",
         "draft_test_plan",
         "validate_test_plan",
         "generate_test",
         "run_test",
+        "collect_run_evidence",
     ]
+    assert trace["checkpoint_mode"] == "trace_resume_state"
 
 
 def test_langgraph_agent_graph_routes_failed_path_to_report(monkeypatch) -> None:
@@ -130,15 +152,20 @@ def test_langgraph_agent_graph_routes_failed_path_to_report(monkeypatch) -> None
 
     assert state["final_status"] == "failed"
     assert state["final_output"]["report_path"] == "generated/reports/bug_report_fake_failed_run.md"
+    assert state["final_output"]["report_draft_path"] == "generated/reports/bug_report_fake_failed_run.md"
+    assert state["final_output"]["report_approved"] is True
+    assert state["final_output"]["report_exported"] is True
 
     trace = _load_trace(state["final_output"]["trace_path"])
     assert [call["tool_name"] for call in trace["tool_calls"]] == [
         "parse_requirement",
+        "analyze_information_needs",
         "retrieve_testing_context",
         "draft_test_plan",
         "validate_test_plan",
         "generate_test",
         "run_test",
+        "collect_run_evidence",
         "create_report",
     ]
 
@@ -164,11 +191,13 @@ def test_langgraph_manual_mode_pauses_before_generation(monkeypatch) -> None:
     trace = _load_trace(state["final_output"]["trace_path"])
     assert [call["tool_name"] for call in trace["tool_calls"]] == [
         "parse_requirement",
+        "analyze_information_needs",
         "retrieve_testing_context",
         "draft_test_plan",
         "validate_test_plan",
     ]
     assert trace["approval_requests"][0]["gate"] == "test_plan"
+    assert trace["pending_approval"]["gate"] == "test_plan"
 
 
 def test_langgraph_blocks_invalid_plan_before_generation(monkeypatch) -> None:
@@ -200,6 +229,7 @@ def test_langgraph_blocks_invalid_plan_before_generation(monkeypatch) -> None:
     trace = _load_trace(state["final_output"]["trace_path"])
     assert [call["tool_name"] for call in trace["tool_calls"]] == [
         "parse_requirement",
+        "analyze_information_needs",
         "retrieve_testing_context",
         "draft_test_plan",
         "validate_test_plan",
@@ -250,6 +280,8 @@ def test_langgraph_manual_mode_pauses_for_report_review_after_failed_run(monkeyp
     assert state["final_status"] == "waiting_for_report_approval"
     assert state["pending_approval"]["gate"] == "report"
     assert state["final_output"]["report_path"] == "generated/reports/bug_report_fake_failed_run.md"
+    assert state["final_output"]["report_draft_path"] == "generated/reports/bug_report_fake_failed_run.md"
+    assert state["final_output"]["report_approved"] is False
 
     trace = _load_trace(state["final_output"]["trace_path"])
     assert trace["approval_requests"][0]["gate"] == "report"

@@ -6,20 +6,25 @@ import json
 from json import JSONDecodeError
 import re
 from pathlib import Path
+from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import ValidationError
 
 from app.agent.orchestrator import continue_agent_run, run_agent_task
 from app.agent.tracer import AGENT_RUNS_DIR
 from app.api.schemas import (
     AgentRunRequest,
+    AgentRunListResponse,
     AgentRunResponse,
     AgentRunSummaryResponse,
     AgentRunTraceResponse,
     AgentApprovalRequest,
     GenerateResponse,
     HealthResponse,
+    KbIngestRequest,
+    KbIngestResponse,
+    KbSearchResponse,
     NormalizeRequest,
     NormalizeResponse,
     ParseResponse,
@@ -39,6 +44,8 @@ from app.core.normalizer import NormalizationError, normalize_requirement_file
 from app.core.parser import parse_prd
 from app.core.reporter import create_bug_report_from_run
 from app.core.runner import run_test_script
+from app.rag.ingest import ingest_document
+from app.rag.retriever import retrieve_testing_context
 
 
 API_INPUTS_DIR = REPO_ROOT / "data" / "api_inputs"
@@ -72,6 +79,68 @@ def _write_inline_input(content: str, filename: str | None, prefix: str, default
     output_path = API_INPUTS_DIR / f"{timestamp}_{safe_stem}{suffix}"
     output_path.write_text(content, encoding="utf-8")
     return output_path
+
+
+def _format_agent_task_markdown(request: AgentRunRequest) -> str:
+    task_text = (request.task_text or "").strip()
+    module = (request.module or "").strip()
+    title = module or "Agent Test Task"
+    target_url = (request.target_url or "").strip()
+    constraints = [constraint.strip() for constraint in request.constraints if constraint and constraint.strip()]
+
+    preconditions = ["Task submitted through Agent API"]
+    if constraints:
+        preconditions.extend(constraints)
+
+    lines = [
+        "# Title",
+        f"{title} PRD",
+        "",
+        "## Feature Name",
+        module or task_text.splitlines()[0][:80] or "Agent Test Task",
+        "",
+        "## Page URL",
+    ]
+    if target_url:
+        lines.append(target_url)
+    lines.extend(
+        [
+            "",
+            "## Preconditions",
+            *[f"- {item}" for item in preconditions],
+            "",
+            "## User Actions",
+            f"1. {task_text}",
+            "",
+            "## Expected Results",
+            "- The described behavior can be verified against the target page.",
+        ]
+    )
+    return "\n".join(lines).strip() + "\n"
+
+
+def _resolve_agent_run_input(request: AgentRunRequest) -> tuple[str, dict[str, object]]:
+    task_payload: dict[str, object] = {}
+    if request.task_text and request.task_text.strip():
+        task_payload["task_text"] = request.task_text.strip()
+    if request.target_url:
+        task_payload["target_url"] = request.target_url
+    if request.module:
+        task_payload["module"] = request.module
+    if request.constraints:
+        task_payload["constraints"] = request.constraints
+
+    if request.input_path:
+        return request.input_path, task_payload
+
+    output_path = _write_inline_input(
+        _format_agent_task_markdown(request),
+        "agent_task.md",
+        prefix="agent_task",
+        default_suffix=".md",
+    )
+    task_payload["generated_input_path"] = _relative_to_repo(output_path)
+    return _relative_to_repo(output_path), task_payload
 
 
 def _resolve_text_input(request: TextInputRequest, prefix: str, default_suffix: str = ".md") -> str:
@@ -197,6 +266,33 @@ def _agent_summary_payload(payload: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _agent_run_list_item(payload: dict[str, object]) -> dict[str, object]:
+    input_payload = payload.get("input")
+    if not isinstance(input_payload, dict):
+        input_payload = {}
+    task = input_payload.get("task")
+    if not isinstance(task, dict):
+        task = None
+
+    final_output = payload.get("final_output")
+    if not isinstance(final_output, dict):
+        final_output = {}
+
+    artifact_paths = _agent_artifact_paths(payload)
+    return {
+        "agent_run_id": str(payload.get("agent_run_id", "unknown_agent_run")),
+        "status": str(payload.get("status", "unknown")),
+        "final_status": payload.get("final_status"),
+        "task": task,
+        "module": (task or {}).get("module") or final_output.get("module"),
+        "start_time": str(payload.get("start_time", "")),
+        "end_time": payload.get("end_time"),
+        "trace_path": artifact_paths.get("trace", ""),
+        "report_path": final_output.get("report_path"),
+        "report_draft_path": final_output.get("report_draft_path"),
+    }
+
+
 @app.get("/healthz", response_model=HealthResponse)
 def healthz() -> HealthResponse:
     return HealthResponse(status="ok")
@@ -240,12 +336,50 @@ def get_run_artifacts(run_id: str) -> RunArtifactsResponse:
 
 @app.post("/api/v1/agent-runs", response_model=AgentRunResponse)
 def create_agent_run(request: AgentRunRequest) -> AgentRunResponse:
-    result = run_agent_task(request.input_path, approval_mode=request.approval_mode)
+    input_path, task = _resolve_agent_run_input(request)
+    result = run_agent_task(input_path, approval_mode=request.approval_mode, task=task or None)
     return AgentRunResponse(**result)
 
 
-@app.post("/api/v1/agent-runs/{agent_run_id}/approvals", response_model=AgentRunResponse)
-def approve_agent_run(agent_run_id: str, request: AgentApprovalRequest) -> AgentRunResponse:
+@app.get("/api/v1/agent-runs", response_model=AgentRunListResponse)
+def list_agent_runs(
+    status: Optional[str] = None,
+    final_status: Optional[str] = None,
+    module: Optional[str] = None,
+    limit: int = Query(20, ge=1, le=100),
+) -> AgentRunListResponse:
+    items: list[dict[str, object]] = []
+    if not AGENT_RUNS_DIR.is_dir():
+        return AgentRunListResponse(agent_runs=[])
+
+    trace_paths = sorted(
+        AGENT_RUNS_DIR.glob("*/trace.json"),
+        key=lambda path: (path.stat().st_mtime, path.as_posix()),
+        reverse=True,
+    )
+    for trace_path in trace_paths:
+        if len(items) >= limit:
+            break
+        try:
+            payload = json.loads(trace_path.read_text(encoding="utf-8"))
+        except (JSONDecodeError, OSError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+
+        item = _agent_run_list_item(payload)
+        if status and item["status"] != status:
+            continue
+        if final_status and item.get("final_status") != final_status:
+            continue
+        if module and item.get("module") != module:
+            continue
+        items.append(item)
+
+    return AgentRunListResponse(agent_runs=items)
+
+
+def _continue_agent_run_response(agent_run_id: str, request: AgentApprovalRequest) -> AgentRunResponse:
     try:
         result = continue_agent_run(
             agent_run_id,
@@ -258,6 +392,16 @@ def approve_agent_run(agent_run_id: str, request: AgentApprovalRequest) -> Agent
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return AgentRunResponse(**result)
+
+
+@app.post("/api/v1/agent-runs/{agent_run_id}/approvals", response_model=AgentRunResponse)
+def approve_agent_run(agent_run_id: str, request: AgentApprovalRequest) -> AgentRunResponse:
+    return _continue_agent_run_response(agent_run_id, request)
+
+
+@app.post("/api/v1/agent-runs/{agent_run_id}/approve", response_model=AgentRunResponse)
+def approve_agent_run_alias(agent_run_id: str, request: AgentApprovalRequest) -> AgentRunResponse:
+    return _continue_agent_run_response(agent_run_id, request)
 
 
 @app.get("/api/v1/agent-runs/{agent_run_id}", response_model=AgentRunSummaryResponse)
@@ -282,6 +426,45 @@ def get_agent_run_trace(agent_run_id: str) -> AgentRunTraceResponse:
         return AgentRunTraceResponse(**trace_payload)
     except ValidationError as exc:
         raise HTTPException(status_code=500, detail=f"Agent run '{agent_run_id}' trace is missing required fields.") from exc
+
+
+@app.post("/api/v1/kb/ingest", response_model=KbIngestResponse)
+def ingest_kb_document(request: KbIngestRequest) -> KbIngestResponse:
+    try:
+        result = ingest_document(
+            source_type=request.source_type,
+            source_path=request.source_path,
+            content=request.content,
+            metadata=request.metadata,
+        )
+    except (FileNotFoundError, JSONDecodeError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return KbIngestResponse(**result)
+
+
+@app.get("/api/v1/kb/search", response_model=KbSearchResponse)
+def search_kb(
+    query: str = Query(..., min_length=1),
+    max_results: int = Query(5, ge=1, le=20),
+) -> KbSearchResponse:
+    result = retrieve_testing_context(query=query, max_results=max_results)
+    items = [
+        {
+            "source_type": item["source_type"],
+            "source_path": item["source_path"],
+            "score": item["score"],
+            "excerpt": item["excerpt"],
+            "metadata": item.get("metadata", {}),
+        }
+        for item in result["results"]
+    ]
+    return KbSearchResponse(
+        query=query,
+        max_results=max_results,
+        result_count=int(result["result_count"]),
+        results=items,
+    )
 
 
 @app.post("/api/v1/normalize", response_model=NormalizeResponse)

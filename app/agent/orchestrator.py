@@ -31,19 +31,27 @@ def _retrieved_context_summary(retrieval_result: Optional[dict[str, Any]]) -> di
 
 def _build_final_output(
     input_path: str,
+    task: Optional[dict[str, Any]],
+    information_needs: Optional[dict[str, Any]],
     retrieval_result: Optional[dict[str, Any]],
     test_plan: Optional[dict[str, Any]],
     plan_validation: Optional[dict[str, Any]],
     generate_result: Optional[dict[str, Any]],
     run_result: Optional[dict[str, Any]],
+    run_evidence: Optional[dict[str, Any]],
     report_result: Optional[dict[str, Any]],
     trace_path: str,
     approval_mode: str,
     pending_approval: Optional[dict[str, Any]],
     approvals: Optional[dict[str, Any]],
+    report_approved: Optional[bool],
+    report_exported: Optional[bool],
 ) -> dict[str, Any]:
     generate_result = generate_result or {}
     run_result = run_result or {}
+    run_evidence = run_evidence or {}
+    task = task or {}
+    test_plan = test_plan or {}
 
     report_path = None
     if report_result:
@@ -53,16 +61,27 @@ def _build_final_output(
 
     return {
         "input_path": input_path,
+        "task": task or None,
+        "module": task.get("module") or test_plan.get("feature_name"),
         "script_path": generate_result.get("script_path"),
         "run_id": run_result.get("run_id"),
         "run_dir": run_result.get("run_dir"),
         "run_status": run_result.get("status"),
         "artifact_paths": run_result.get("artifact_paths", {}),
         "report_path": report_path,
+        "report_draft_path": report_path,
+        "report_approved": report_approved,
+        "report_exported": report_exported,
         "trace_path": trace_path,
+        "information_needs": information_needs,
         "retrieved_context": _retrieved_context_summary(retrieval_result),
+        "retrieval_backend": retrieval_result.get("retrieval_backend") if isinstance(retrieval_result, dict) else None,
         "test_plan": test_plan,
+        "planning_strategy": test_plan.get("planning_strategy"),
         "plan_validation": plan_validation,
+        "run_summary": run_evidence.get("run_summary"),
+        "queried_artifacts": run_evidence.get("queried_artifacts"),
+        "checkpoint_mode": "trace_resume_state",
         "approval_mode": approval_mode,
         "pending_approval": pending_approval,
         "human_approvals": approvals or {},
@@ -72,12 +91,17 @@ def _build_final_output(
 def _resume_state_from_graph_state(graph_state: dict[str, Any]) -> dict[str, Any]:
     keys = (
         "parse_result",
+        "information_needs",
         "retrieval_result",
         "test_plan",
         "plan_validation",
         "generate_result",
         "run_result",
+        "run_evidence",
         "report_result",
+        "report_approved",
+        "report_exported",
+        "task",
     )
     return {key: graph_state[key] for key in keys if key in graph_state}
 
@@ -94,6 +118,7 @@ def _run_with_tracer(
     approval_mode: ApprovalMode,
     approvals: Optional[dict[str, Any]] = None,
     resume_state: Optional[dict[str, Any]] = None,
+    task: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     trace_path = tracer.trace["artifact_paths"]["trace"]
     approvals = approvals or {}
@@ -106,22 +131,28 @@ def _run_with_tracer(
             approval_mode=approval_mode,
             approvals=approvals,
             resume_state=resume_state,
+            task=task,
         )
         final_status = str(graph_state.get("final_status", "environment_error"))
         final_output = graph_state.get("final_output")
         if not isinstance(final_output, dict):
             final_output = _build_final_output(
                 input_path,
+                graph_state.get("task") if isinstance(graph_state.get("task"), dict) else task,
+                graph_state.get("information_needs"),
                 graph_state.get("retrieval_result"),
                 graph_state.get("test_plan"),
                 graph_state.get("plan_validation"),
                 graph_state.get("generate_result"),
                 graph_state.get("run_result"),
+                graph_state.get("run_evidence"),
                 graph_state.get("report_result"),
                 trace_path,
                 approval_mode,
                 graph_state.get("pending_approval"),
                 approvals,
+                graph_state.get("report_approved"),
+                graph_state.get("report_exported"),
             )
 
         resume_state_payload = _resume_state_from_graph_state(graph_state)
@@ -150,12 +181,16 @@ def run_agent_task(
     input_path: str,
     agent_run_id: Optional[str] = None,
     approval_mode: ApprovalMode = "auto",
+    task: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
+    initial_input = {"input_path": input_path, "approval_mode": approval_mode}
+    if task:
+        initial_input["task"] = task
     tracer = AgentRunTracer.create(
-        {"input_path": input_path, "approval_mode": approval_mode},
+        initial_input,
         agent_run_id=agent_run_id,
     )
-    return _run_with_tracer(tracer, input_path, approval_mode=approval_mode)
+    return _run_with_tracer(tracer, input_path, approval_mode=approval_mode, task=task)
 
 
 def continue_agent_run(
@@ -185,6 +220,9 @@ def continue_agent_run(
     input_payload = tracer.trace.get("input")
     if not isinstance(input_payload, dict) or not isinstance(input_payload.get("input_path"), str):
         raise ValueError(f"Agent run '{agent_run_id}' trace does not contain input_path.")
+    task = input_payload.get("task")
+    if not isinstance(task, dict):
+        task = None
 
     tracer.record_approval_decision(gate, decision, reviewer=reviewer, comment=comment)
 
@@ -202,4 +240,5 @@ def continue_agent_run(
         approval_mode="manual",
         approvals=approvals,
         resume_state=resume_state,
+        task=task,
     )

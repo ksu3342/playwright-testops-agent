@@ -30,6 +30,7 @@ Test inputs often start as PRDs, rough notes, or half-structured requirement tex
 - After an optional `normalize` step, the implemented flow is `parse -> extract -> generate -> run -> report`.
 - The CLI already exposes `normalize`, `parse`, `generate`, `run`, and `report`.
 - FastAPI already exposes health checks, pipeline execution, run lookup, and artifact lookup.
+- Agent run endpoints now accept either `input_path` or `task_text`, record traces, analyze information needs, pause for human approval, and use local file-backed KB ingest/search.
 - Generated scaffolds, run summaries, and report drafts are written to `generated/tests/`, `data/runs/`, and `generated/reports/` at runtime. Those outputs are reproducible locally but are not committed as fixed public samples.
 - The repo already includes [Docker packaging](./Dockerfile), [docker-compose.yml](./docker-compose.yml), and [API integration tests](./tests/integration/test_api.py).
 
@@ -90,6 +91,8 @@ The report path under `generated/reports/` is also a runtime output, not a fixed
 - `normalize` is intentionally optional and remains the only LLM-assisted step.
 - The deterministic core flow stays `parse -> extract -> generate -> run -> report`, which keeps behavior easier to inspect and explain.
 - Artifacts remain file-backed so run history and reports can be checked directly from the repository workspace.
+- KB retrieval is also file-backed: `data/kb/index.json` stores the index and `data/kb/uploaded/` stores API-ingested content.
+- Agent checkpointing is local `trace.json + resume_state`, not LangGraph-native durable execution.
 - `/api/v1/run` remains synchronous so run state and recorded outputs stay explicit.
 
 ## Boundaries / Non-goals
@@ -97,6 +100,9 @@ The report path under `generated/reports/` is also a runtime output, not a fixed
 - The current implementation remains a `CLI-first TestOps Agent MVP + thin FastAPI wrapper`.
 - Persistence is still file-backed, not Redis-backed, MySQL-backed, or otherwise database-backed.
 - No frontend, authentication layer, multi-agent system, or full testing platform is claimed here.
+- Local KB search is deterministic file retrieval, not a production vector database or LangChain vector search.
+- Test-plan drafting is a deterministic scaffold, not LLM planning.
+- Trace persistence is not a LangGraph-native durable checkpoint backend.
 - This is not a queue-backed async execution system or a production-grade platform.
 
 ## What run_id Now Proves
@@ -120,6 +126,31 @@ GET /api/v1/runs/{run_id}/artifacts
 ```
 
 Responses include `lineage`, `artifact_paths`, and `report_path` fields.
+
+Minimal agent and KB platform-style endpoints:
+
+```bash
+POST /api/v1/agent-runs
+GET  /api/v1/agent-runs
+GET  /api/v1/agent-runs/{agent_run_id}
+GET  /api/v1/agent-runs/{agent_run_id}/trace
+POST /api/v1/agent-runs/{agent_run_id}/approvals
+POST /api/v1/agent-runs/{agent_run_id}/approve
+POST /api/v1/kb/ingest
+GET  /api/v1/kb/search?query=login%20selector&max_results=5
+```
+
+`/approve` is a compatibility alias for `/approvals`. KB ingest accepts `source_type`, optional `source_path`, optional `content`, and optional `metadata`; content uploads are written under `data/kb/uploaded/` and indexed through `data/kb/index.json`.
+
+Agent runs can be created from a tracked PRD path or a task payload:
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/agent-runs" `
+  -H "Content-Type: application/json" `
+  -d '{"task_text":"Verify login happy path with valid credentials.","target_url":"/login","module":"login","constraints":["Use selector contracts"]}'
+```
+
+The list endpoint reads local `data/agent_runs/*/trace.json` files and supports `status`, `final_status`, `module`, and `limit` filters.
 
 ## CI Verification
 

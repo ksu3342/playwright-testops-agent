@@ -68,7 +68,10 @@ class AgentRunTracer:
             "tool_calls": [],
             "approval_requests": [],
             "human_approvals": {},
+            "checkpoint_mode": "trace_resume_state",
             "resume_state": None,
+            "state_keys": [],
+            "pending_approval": None,
             "final_output": None,
             "error": None,
             "artifact_paths": {
@@ -173,6 +176,7 @@ class AgentRunTracer:
             "payload": _json_safe(payload),
         }
         requests.append(request_record)
+        self.trace["pending_approval"] = _json_safe(request_record)
         self._write()
         return request_record
 
@@ -234,6 +238,12 @@ class AgentRunTracer:
         self.trace["end_time"] = end.isoformat()
         self.trace["duration_seconds"] = round((end - start).total_seconds(), 6)
         self.trace["resume_state"] = _json_safe(resume_state)
+        self.trace["checkpoint_mode"] = "trace_resume_state"
+        self.trace["state_keys"] = sorted(resume_state.keys()) if isinstance(resume_state, dict) else []
+        if isinstance(final_output, dict):
+            self.trace["pending_approval"] = _json_safe(final_output.get("pending_approval"))
+        else:
+            self.trace["pending_approval"] = None
         if error is not None:
             self.trace["error"] = str(error)
         self._write()

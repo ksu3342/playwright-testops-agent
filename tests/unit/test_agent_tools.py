@@ -2,6 +2,8 @@ from pathlib import Path
 
 from app.agent.tools import (
     TOOL_REGISTRY,
+    analyze_information_needs,
+    collect_run_evidence,
     create_report,
     draft_test_plan,
     generate_test,
@@ -18,6 +20,7 @@ def test_agent_tool_registry_exposes_expected_tools() -> None:
     assert {
         "normalize_requirement",
         "parse_requirement",
+        "analyze_information_needs",
         "retrieve_testing_context",
         "draft_test_plan",
         "validate_test_plan",
@@ -26,6 +29,7 @@ def test_agent_tool_registry_exposes_expected_tools() -> None:
         "create_report",
         "get_run_summary",
         "get_artifacts",
+        "collect_run_evidence",
     }.issubset(TOOL_REGISTRY)
 
 
@@ -44,9 +48,14 @@ def test_parse_and_generate_tools_return_serializable_payloads() -> None:
 
 
 def test_retrieval_tool_returns_context_for_generation() -> None:
-    retrieval_result = retrieve_testing_context("data/inputs/sample_prd_login.md", max_results=5)
+    retrieval_result = retrieve_testing_context(
+        "data/inputs/sample_prd_login.md",
+        max_results=5,
+        source_types=["selector_contract", "test_data_contract", "product_doc"],
+    )
 
     assert retrieval_result["result_count"] >= 3
+    assert retrieval_result["retrieval_backend"] == "file_lexical"
     assert "data/contracts/demo_app_selectors.json" in [
         item["source_path"] for item in retrieval_result["results"]
     ]
@@ -61,12 +70,24 @@ def test_retrieval_tool_returns_context_for_generation() -> None:
 
 
 def test_draft_and_validate_test_plan_tools_return_reviewable_payload() -> None:
-    retrieval_result = retrieve_testing_context("data/inputs/sample_prd_login.md", max_results=5)
-    test_plan = draft_test_plan("data/inputs/sample_prd_login.md", testing_context=retrieval_result)
+    information_needs = analyze_information_needs("data/inputs/sample_prd_login.md")
+    retrieval_result = retrieve_testing_context(
+        "data/inputs/sample_prd_login.md",
+        max_results=5,
+        source_types=information_needs["required_context_types"],
+        query=information_needs["retrieval_query"],
+    )
+    test_plan = draft_test_plan(
+        "data/inputs/sample_prd_login.md",
+        testing_context=retrieval_result,
+        information_needs=information_needs,
+    )
     validation = validate_test_plan(test_plan)
 
     assert test_plan["feature_name"] == "User Login"
     assert test_plan["page_url"] == "/login"
+    assert test_plan["planning_strategy"] == "deterministic_scaffold"
+    assert "selector_contract" in information_needs["required_context_types"]
     assert test_plan["test_cases"][0]["id"] == "TP-001"
     assert "data/contracts/demo_app_selectors.json" in test_plan["retrieved_source_paths"]
     assert validation == {
@@ -97,6 +118,24 @@ def test_validate_test_plan_blocks_missing_required_review_inputs() -> None:
     ]
 
 
+def test_analyze_information_needs_adds_history_and_bug_context_for_task_text() -> None:
+    parse_result = parse_requirement("data/inputs/sample_prd_login.md")
+    needs = analyze_information_needs(
+        "data/inputs/sample_prd_login.md",
+        parse_result=parse_result,
+        task={
+            "task_text": "Run a regression check because this login flow failed before with a defect.",
+            "module": "login",
+            "target_url": "/login",
+        },
+    )
+
+    assert "run_history" in needs["required_context_types"]
+    assert "bug_report" in needs["required_context_types"]
+    assert "historical_run_context_requested" in needs["reason_codes"]
+    assert "defect_context_requested" in needs["reason_codes"]
+
+
 def test_run_summary_and_artifact_tools_read_saved_run_outputs() -> None:
     run_result = run_test("tests/assets/runner_pass_case.py")
 
@@ -104,11 +143,15 @@ def test_run_summary_and_artifact_tools_read_saved_run_outputs() -> None:
 
     summary_result = get_run_summary(run_result["run_id"])
     artifacts_result = get_artifacts(run_result["run_dir"])
+    evidence_result = collect_run_evidence(run_result["run_dir"])
 
     assert summary_result["summary"]["status"] == "passed"
     assert summary_result["summary"]["run_id"] == run_result["run_id"]
     assert artifacts_result["artifact_paths"]["summary"].endswith("summary.json")
     assert artifacts_result["run_id"] == run_result["run_id"]
+    assert evidence_result["queried_tools"] == ["get_run_summary", "get_artifacts"]
+    assert evidence_result["run_summary"]["run_id"] == run_result["run_id"]
+    assert evidence_result["queried_artifacts"]["run_id"] == run_result["run_id"]
 
 
 def test_report_tool_generates_report_for_failed_run() -> None:

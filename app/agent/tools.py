@@ -83,11 +83,95 @@ def parse_requirement(input_path: str) -> dict[str, Any]:
     }
 
 
-def retrieve_testing_context(input_path: str, max_results: int = 5) -> dict[str, Any]:
+def _document_from_parse_result(parse_result: Optional[dict[str, Any]]) -> dict[str, Any]:
+    if not parse_result:
+        return {}
+    document = parse_result.get("document")
+    return document if isinstance(document, dict) else {}
+
+
+def analyze_information_needs(
+    input_path: str,
+    parse_result: Optional[dict[str, Any]] = None,
+    task: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    document = _document_from_parse_result(parse_result)
+    if not document:
+        document = _json_safe(parse_prd(input_path))
+
+    task = task or {}
+    missing_task_fields: list[str] = []
+    reason_codes: list[str] = []
+    required_context_types = {
+        "product_doc",
+        "test_guideline",
+        "selector_contract",
+        "test_data_contract",
+    }
+
+    page_url = document.get("page_url") or task.get("target_url")
+    feature_name = document.get("feature_name") or task.get("module")
+    expected_results = document.get("expected_results")
+    raw_text = str(document.get("raw_text", ""))
+    task_text = str(task.get("task_text", ""))
+    constraints = task.get("constraints") if isinstance(task.get("constraints"), list) else []
+    combined_text = " ".join([raw_text, task_text, " ".join(str(item) for item in constraints)]).lower()
+
+    if not feature_name:
+        missing_task_fields.append("module")
+        reason_codes.append("missing_module_or_feature")
+    if not page_url:
+        missing_task_fields.append("target_url")
+        reason_codes.append("missing_target_url")
+    if not expected_results:
+        missing_task_fields.append("expected_results")
+        reason_codes.append("missing_expected_results")
+
+    history_markers = ("history", "previous", "regression", "failed before", "失败", "历史", "回归")
+    bug_markers = ("bug", "defect", "failure", "failed", "缺陷", "故障", "报错")
+    if any(marker in combined_text for marker in history_markers):
+        required_context_types.add("run_history")
+        reason_codes.append("historical_run_context_requested")
+    if any(marker in combined_text for marker in bug_markers):
+        required_context_types.add("bug_report")
+        reason_codes.append("defect_context_requested")
+
+    if "selector" in combined_text or "locator" in combined_text:
+        reason_codes.append("selector_context_requested")
+    if "data" in combined_text or "fixture" in combined_text or "测试数据" in combined_text:
+        reason_codes.append("test_data_context_requested")
+
+    retrieval_query_parts = [
+        str(feature_name or ""),
+        str(page_url or ""),
+        raw_text,
+        task_text,
+        " ".join(str(item) for item in constraints),
+    ]
+    retrieval_query = " ".join(part for part in retrieval_query_parts if part).strip()
+    if not retrieval_query:
+        retrieval_query = input_path
+
+    return {
+        "required_context_types": sorted(required_context_types),
+        "reason_codes": sorted(set(reason_codes)),
+        "retrieval_query": retrieval_query,
+        "missing_task_fields": missing_task_fields,
+    }
+
+
+def retrieve_testing_context(
+    input_path: str,
+    max_results: int = 5,
+    source_types: Optional[list[str]] = None,
+    query: Optional[str] = None,
+) -> dict[str, Any]:
     return _json_safe(
         retrieve_local_testing_context(
             input_path=input_path,
+            query=query,
             max_results=max_results,
+            source_types=source_types,
         )
     )
 
@@ -163,7 +247,11 @@ def _has_source_type(test_plan: dict[str, Any], source_type: str) -> bool:
     return any(isinstance(source, dict) and source.get("source_type") == source_type for source in retrieved_sources)
 
 
-def draft_test_plan(input_path: str, testing_context: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def draft_test_plan(
+    input_path: str,
+    testing_context: Optional[dict[str, Any]] = None,
+    information_needs: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     document = parse_prd(input_path)
     test_points = extract_test_points(document)
     retrieved_sources = _retrieved_sources(testing_context)
@@ -187,6 +275,8 @@ def draft_test_plan(input_path: str, testing_context: Optional[dict[str, Any]] =
         "input_path": _relative_to_repo(_resolve_repo_path(input_path)),
         "feature_name": document.feature_name,
         "page_url": document.page_url,
+        "planning_strategy": "deterministic_scaffold",
+        "information_needs": information_needs or {},
         "retrieved_source_paths": retrieved_source_paths,
         "retrieved_sources": retrieved_sources,
         "test_cases": [
@@ -294,9 +384,18 @@ def get_artifacts(run_reference: str) -> dict[str, Any]:
     }
 
 
+def collect_run_evidence(run_reference: str) -> dict[str, Any]:
+    return {
+        "queried_tools": ["get_run_summary", "get_artifacts"],
+        "run_summary": get_run_summary(run_reference),
+        "queried_artifacts": get_artifacts(run_reference),
+    }
+
+
 TOOL_REGISTRY = {
     "normalize_requirement": normalize_requirement,
     "parse_requirement": parse_requirement,
+    "analyze_information_needs": analyze_information_needs,
     "retrieve_testing_context": retrieve_testing_context,
     "draft_test_plan": draft_test_plan,
     "validate_test_plan": validate_test_plan,
@@ -305,4 +404,5 @@ TOOL_REGISTRY = {
     "create_report": create_report,
     "get_run_summary": get_run_summary,
     "get_artifacts": get_artifacts,
+    "collect_run_evidence": collect_run_evidence,
 }

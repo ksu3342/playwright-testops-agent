@@ -1,6 +1,6 @@
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TextInputRequest(BaseModel):
@@ -22,8 +22,18 @@ class ReportRequest(BaseModel):
 
 
 class AgentRunRequest(BaseModel):
-    input_path: str
+    input_path: Optional[str] = None
+    task_text: Optional[str] = None
+    target_url: Optional[str] = None
+    module: Optional[str] = None
+    constraints: list[str] = Field(default_factory=list)
     approval_mode: Literal["auto", "manual"] = "auto"
+
+    @model_validator(mode="after")
+    def require_input_path_or_task_text(self) -> "AgentRunRequest":
+        if not self.input_path and not (self.task_text and self.task_text.strip()):
+            raise ValueError("Provide either input_path or non-empty task_text.")
+        return self
 
 
 class AgentApprovalRequest(BaseModel):
@@ -31,6 +41,21 @@ class AgentApprovalRequest(BaseModel):
     decision: Literal["approved", "rejected"]
     reviewer: Optional[str] = None
     comment: Optional[str] = None
+
+
+class KbIngestRequest(BaseModel):
+    source_type: Literal[
+        "product_doc",
+        "test_guideline",
+        "selector_contract",
+        "test_data_contract",
+        "run_history",
+        "bug_report",
+        "note",
+    ]
+    source_path: Optional[str] = None
+    content: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class HealthResponse(BaseModel):
@@ -124,16 +149,27 @@ class AgentRunResponse(BaseModel):
     agent_run_id: str
     final_status: str
     input_path: Optional[str] = None
+    task: Optional[dict[str, Any]] = None
+    module: Optional[str] = None
     script_path: Optional[str] = None
     run_id: Optional[str] = None
     run_dir: Optional[str] = None
     run_status: Optional[str] = None
     artifact_paths: dict[str, str] = Field(default_factory=dict)
     report_path: Optional[str] = None
+    report_draft_path: Optional[str] = None
+    report_approved: Optional[bool] = None
+    report_exported: Optional[bool] = None
     trace_path: str
+    information_needs: Optional[dict[str, Any]] = None
     retrieved_context: Optional[dict[str, Any]] = None
+    retrieval_backend: Optional[str] = None
     test_plan: Optional[dict[str, Any]] = None
+    planning_strategy: Optional[str] = None
     plan_validation: Optional[dict[str, Any]] = None
+    run_summary: Optional[dict[str, Any]] = None
+    queried_artifacts: Optional[dict[str, Any]] = None
+    checkpoint_mode: Optional[str] = None
     approval_mode: Optional[str] = None
     pending_approval: Optional[dict[str, Any]] = None
     human_approvals: dict[str, Any] = Field(default_factory=dict)
@@ -157,3 +193,42 @@ class AgentRunSummaryResponse(BaseModel):
 
 class AgentRunTraceResponse(AgentRunSummaryResponse):
     tool_calls: list[dict[str, Any]]
+
+
+class AgentRunListItemResponse(BaseModel):
+    agent_run_id: str
+    status: str
+    final_status: Optional[str] = None
+    task: Optional[dict[str, Any]] = None
+    module: Optional[str] = None
+    start_time: str
+    end_time: Optional[str] = None
+    trace_path: str
+    report_path: Optional[str] = None
+    report_draft_path: Optional[str] = None
+
+
+class AgentRunListResponse(BaseModel):
+    agent_runs: list[AgentRunListItemResponse]
+
+
+class KbIngestResponse(BaseModel):
+    document_id: str
+    source_type: str
+    source_path: str
+    indexed_at: str
+
+
+class KbSearchResultResponse(BaseModel):
+    source_type: str
+    source_path: str
+    score: int
+    excerpt: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class KbSearchResponse(BaseModel):
+    query: str
+    max_results: int
+    result_count: int
+    results: list[KbSearchResultResponse]

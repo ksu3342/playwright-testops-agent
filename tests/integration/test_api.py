@@ -11,6 +11,18 @@ from app.core.collector import RUNS_DIR
 client = TestClient(app)
 
 
+AGENT_SUCCESS_TOOL_SEQUENCE = [
+    "parse_requirement",
+    "analyze_information_needs",
+    "retrieve_testing_context",
+    "draft_test_plan",
+    "validate_test_plan",
+    "generate_test",
+    "run_test",
+    "collect_run_evidence",
+]
+
+
 def _create_run(input_path: str) -> dict[str, object]:
     response = client.post("/api/v1/run", json={"input_path": input_path})
 
@@ -37,6 +49,38 @@ def test_healthz_returns_ok() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_kb_ingest_then_search_api_returns_indexed_document() -> None:
+    unique_token = f"p5apisearch{uuid4().hex}"
+
+    ingest_response = client.post(
+        "/api/v1/kb/ingest",
+        json={
+            "source_type": "note",
+            "content": f"{unique_token} should be retrievable through the KB search API.",
+            "metadata": {"test": "integration"},
+        },
+    )
+    ingest_payload = ingest_response.json()
+
+    assert ingest_response.status_code == 200
+    assert ingest_payload["document_id"].startswith("kb_")
+    assert ingest_payload["source_type"] == "note"
+    assert ingest_payload["source_path"].startswith("data/kb/uploaded/")
+    assert ingest_payload["indexed_at"]
+
+    search_response = client.get(
+        "/api/v1/kb/search",
+        params={"query": unique_token, "max_results": 5},
+    )
+    search_payload = search_response.json()
+
+    assert search_response.status_code == 200
+    assert search_payload["query"] == unique_token
+    assert search_payload["max_results"] == 5
+    assert search_payload["result_count"] >= 1
+    assert any(item["source_path"] == ingest_payload["source_path"] for item in search_payload["results"])
 
 
 def test_normalize_endpoint_accepts_inline_content() -> None:
@@ -288,7 +332,47 @@ def test_agent_run_endpoint_executes_login_flow_and_returns_trace_path() -> None
     assert payload["retrieved_context"]["result_count"] >= 1
     assert payload["test_plan"]["feature_name"] == "User Login"
     assert payload["plan_validation"]["status"] == "passed"
+    assert payload["planning_strategy"] == "deterministic_scaffold"
+    assert payload["retrieval_backend"] == "file_lexical"
+    assert payload["run_summary"]["run_id"] == payload["run_id"]
+    assert payload["queried_artifacts"]["run_id"] == payload["run_id"]
+    assert payload["checkpoint_mode"] == "trace_resume_state"
     assert Path(payload["trace_path"]).exists()
+
+
+def test_agent_run_endpoint_accepts_task_text_and_lists_by_module() -> None:
+    module = f"P6 Login {uuid4().hex[:8]}"
+    response = client.post(
+        "/api/v1/agent-runs",
+        json={
+            "task_text": "Verify that a valid user can submit the login form and reach the dashboard.",
+            "target_url": "/login",
+            "module": module,
+            "constraints": ["Use stable selector contracts", "Check recent failure history"],
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["final_status"] == "passed"
+    assert payload["task"]["module"] == module
+    assert payload["task"]["generated_input_path"].startswith("data/api_inputs/")
+    assert payload["module"] == module
+    assert payload["information_needs"]["required_context_types"]
+    assert "run_history" in payload["information_needs"]["required_context_types"]
+    assert payload["test_plan"]["planning_strategy"] == "deterministic_scaffold"
+
+    list_response = client.get(
+        "/api/v1/agent-runs",
+        params={"module": module, "final_status": "passed", "limit": 5},
+    )
+    list_payload = list_response.json()
+
+    assert list_response.status_code == 200
+    assert any(item["agent_run_id"] == payload["agent_run_id"] for item in list_payload["agent_runs"])
+    matched = [item for item in list_payload["agent_runs"] if item["agent_run_id"] == payload["agent_run_id"]][0]
+    assert matched["module"] == module
+    assert matched["trace_path"] == payload["trace_path"]
 
 
 def test_agent_run_summary_endpoint_returns_saved_trace_summary() -> None:
@@ -317,16 +401,11 @@ def test_agent_run_trace_endpoint_returns_tool_calls() -> None:
     assert trace["final_status"] == "passed"
 
     tool_calls = trace["tool_calls"]
-    assert [call["tool_name"] for call in tool_calls] == [
-        "parse_requirement",
-        "retrieve_testing_context",
-        "draft_test_plan",
-        "validate_test_plan",
-        "generate_test",
-        "run_test",
-    ]
+    assert [call["tool_name"] for call in tool_calls] == AGENT_SUCCESS_TOOL_SEQUENCE
     assert all(call["status"] == "succeeded" for call in tool_calls)
     assert trace["final_output"]["artifact_paths"]["summary"].endswith("summary.json")
+    assert trace["final_output"]["checkpoint_mode"] == "trace_resume_state"
+    assert trace["final_output"]["retrieval_backend"] == "file_lexical"
 
 
 def test_agent_run_manual_approval_flow_pauses_and_resumes() -> None:
@@ -382,6 +461,82 @@ def test_agent_run_manual_approval_flow_pauses_and_resumes() -> None:
     assert trace["human_approvals"]["execution"]["decision"] == "approved"
 
 
+def test_agent_run_manual_task_text_flow_uses_approve_alias() -> None:
+    module = f"P6 Manual Login {uuid4().hex[:8]}"
+    create_response = client.post(
+        "/api/v1/agent-runs",
+        json={
+            "task_text": "Verify login happy path with valid credentials.",
+            "target_url": "/login",
+            "module": module,
+            "approval_mode": "manual",
+        },
+    )
+    created = create_response.json()
+
+    assert create_response.status_code == 200
+    assert created["final_status"] == "waiting_for_test_plan_approval"
+    assert created["task"]["module"] == module
+    assert created["pending_approval"]["gate"] == "test_plan"
+
+    plan_response = client.post(
+        f"/api/v1/agent-runs/{created['agent_run_id']}/approve",
+        json={"gate": "test_plan", "decision": "approved", "reviewer": "pytest"},
+    )
+    after_plan = plan_response.json()
+
+    assert plan_response.status_code == 200
+    assert after_plan["final_status"] == "waiting_for_execution_approval"
+
+    execution_response = client.post(
+        f"/api/v1/agent-runs/{created['agent_run_id']}/approve",
+        json={"gate": "execution", "decision": "approved", "reviewer": "pytest"},
+    )
+    after_execution = execution_response.json()
+
+    assert execution_response.status_code == 200
+    assert after_execution["final_status"] == "passed"
+    assert after_execution["task"]["module"] == module
+    assert after_execution["run_summary"]["run_id"] == after_execution["run_id"]
+
+
+def test_agent_run_manual_approve_alias_completes_approval_flow() -> None:
+    created = _create_manual_agent_run("data/inputs/sample_prd_login.md")
+
+    plan_response = client.post(
+        f"/api/v1/agent-runs/{created['agent_run_id']}/approve",
+        json={
+            "gate": "test_plan",
+            "decision": "approved",
+            "reviewer": "pytest",
+            "comment": "plan approved through alias",
+        },
+    )
+    after_plan = plan_response.json()
+
+    assert plan_response.status_code == 200
+    assert after_plan["final_status"] == "waiting_for_execution_approval"
+    assert after_plan["pending_approval"]["gate"] == "execution"
+    assert after_plan["script_path"] == "generated/tests/test_login_generated.py"
+
+    execution_response = client.post(
+        f"/api/v1/agent-runs/{created['agent_run_id']}/approve",
+        json={
+            "gate": "execution",
+            "decision": "approved",
+            "reviewer": "pytest",
+            "comment": "execute through alias",
+        },
+    )
+    after_execution = execution_response.json()
+
+    assert execution_response.status_code == 200
+    assert after_execution["final_status"] == "passed"
+    assert after_execution["run_id"]
+    assert after_execution["human_approvals"]["test_plan"]["decision"] == "approved"
+    assert after_execution["human_approvals"]["execution"]["decision"] == "approved"
+
+
 def test_agent_run_manual_rejects_plan_without_generation() -> None:
     created = _create_manual_agent_run("data/inputs/sample_prd_login.md")
 
@@ -405,6 +560,7 @@ def test_agent_run_manual_rejects_plan_without_generation() -> None:
     trace = trace_response.json()
     assert [call["tool_name"] for call in trace["tool_calls"]] == [
         "parse_requirement",
+        "analyze_information_needs",
         "retrieve_testing_context",
         "draft_test_plan",
         "validate_test_plan",
