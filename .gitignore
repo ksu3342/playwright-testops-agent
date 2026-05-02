@@ -200,3 +200,4 @@ data/kb/uploaded/*
 
 # Local session handoff notes
 SESSION_HANDOFF_PHASE_6_5.json
+AGENTS.md
