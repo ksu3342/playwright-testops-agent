@@ -3,12 +3,14 @@ from pathlib import Path
 from app.agent.tools import (
     TOOL_REGISTRY,
     create_report,
+    draft_test_plan,
     generate_test,
     get_artifacts,
     get_run_summary,
     parse_requirement,
     retrieve_testing_context,
     run_test,
+    validate_test_plan,
 )
 
 
@@ -17,6 +19,8 @@ def test_agent_tool_registry_exposes_expected_tools() -> None:
         "normalize_requirement",
         "parse_requirement",
         "retrieve_testing_context",
+        "draft_test_plan",
+        "validate_test_plan",
         "generate_test",
         "run_test",
         "create_report",
@@ -54,6 +58,43 @@ def test_retrieval_tool_returns_context_for_generation() -> None:
 
     assert "data/contracts/demo_app_selectors.json" in generate_result["context_source_paths"]
     assert generate_result["script_path"] == "generated/tests/test_login_generated.py"
+
+
+def test_draft_and_validate_test_plan_tools_return_reviewable_payload() -> None:
+    retrieval_result = retrieve_testing_context("data/inputs/sample_prd_login.md", max_results=5)
+    test_plan = draft_test_plan("data/inputs/sample_prd_login.md", testing_context=retrieval_result)
+    validation = validate_test_plan(test_plan)
+
+    assert test_plan["feature_name"] == "User Login"
+    assert test_plan["page_url"] == "/login"
+    assert test_plan["test_cases"][0]["id"] == "TP-001"
+    assert "data/contracts/demo_app_selectors.json" in test_plan["retrieved_source_paths"]
+    assert validation == {
+        "status": "passed",
+        "missing_inputs": [],
+        "can_generate": True,
+        "reason": "test_plan_ready",
+    }
+
+
+def test_validate_test_plan_blocks_missing_required_review_inputs() -> None:
+    validation = validate_test_plan(
+        {
+            "feature_name": "",
+            "page_url": None,
+            "test_cases": [],
+            "retrieved_sources": [],
+        }
+    )
+
+    assert validation["status"] == "blocked"
+    assert validation["can_generate"] is False
+    assert validation["missing_inputs"] == [
+        "feature_name",
+        "page_url",
+        "test_cases",
+        "selector_contract",
+    ]
 
 
 def test_run_summary_and_artifact_tools_read_saved_run_outputs() -> None:

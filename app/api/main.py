@@ -10,13 +10,14 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 
-from app.agent.orchestrator import run_agent_task
+from app.agent.orchestrator import continue_agent_run, run_agent_task
 from app.agent.tracer import AGENT_RUNS_DIR
 from app.api.schemas import (
     AgentRunRequest,
     AgentRunResponse,
     AgentRunSummaryResponse,
     AgentRunTraceResponse,
+    AgentApprovalRequest,
     GenerateResponse,
     HealthResponse,
     NormalizeRequest,
@@ -172,6 +173,14 @@ def _agent_summary_payload(payload: dict[str, object]) -> dict[str, object]:
     if final_output is not None and not isinstance(final_output, dict):
         final_output = {"value": str(final_output)}
 
+    approval_requests = payload.get("approval_requests")
+    if not isinstance(approval_requests, list):
+        approval_requests = []
+
+    human_approvals = payload.get("human_approvals")
+    if not isinstance(human_approvals, dict):
+        human_approvals = {}
+
     return {
         "agent_run_id": str(payload.get("agent_run_id", "unknown_agent_run")),
         "status": str(payload.get("status", "unknown")),
@@ -182,6 +191,8 @@ def _agent_summary_payload(payload: dict[str, object]) -> dict[str, object]:
         "duration_seconds": payload.get("duration_seconds"),
         "final_output": final_output,
         "artifact_paths": _agent_artifact_paths(payload),
+        "approval_requests": approval_requests,
+        "human_approvals": human_approvals,
         "error": payload.get("error"),
     }
 
@@ -229,7 +240,23 @@ def get_run_artifacts(run_id: str) -> RunArtifactsResponse:
 
 @app.post("/api/v1/agent-runs", response_model=AgentRunResponse)
 def create_agent_run(request: AgentRunRequest) -> AgentRunResponse:
-    result = run_agent_task(request.input_path)
+    result = run_agent_task(request.input_path, approval_mode=request.approval_mode)
+    return AgentRunResponse(**result)
+
+
+@app.post("/api/v1/agent-runs/{agent_run_id}/approvals", response_model=AgentRunResponse)
+def approve_agent_run(agent_run_id: str, request: AgentApprovalRequest) -> AgentRunResponse:
+    try:
+        result = continue_agent_run(
+            agent_run_id,
+            gate=request.gate,
+            decision=request.decision,
+            reviewer=request.reviewer,
+            comment=request.comment,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     return AgentRunResponse(**result)
 
 

@@ -66,6 +66,9 @@ class AgentRunTracer:
             "end_time": None,
             "duration_seconds": None,
             "tool_calls": [],
+            "approval_requests": [],
+            "human_approvals": {},
+            "resume_state": None,
             "final_output": None,
             "error": None,
             "artifact_paths": {
@@ -80,8 +83,27 @@ class AgentRunTracer:
         input_path = str(initial_input.get("input_path", "input"))
         return cls(agent_run_id or build_agent_run_id(input_path), initial_input)
 
+    @classmethod
+    def resume(cls, agent_run_id: str) -> "AgentRunTracer":
+        tracer = cls.__new__(cls)
+        tracer.agent_run_id = agent_run_id
+        tracer.run_dir = AGENT_RUNS_DIR / agent_run_id
+        tracer.trace_path = tracer.run_dir / "trace.json"
+        if not tracer.trace_path.is_file():
+            raise FileNotFoundError(f"Agent run trace was not found: {_relative_to_repo(tracer.trace_path)}")
+        payload = json.loads(tracer.trace_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError(f"Agent run trace is not a JSON object: {_relative_to_repo(tracer.trace_path)}")
+        tracer.trace = payload
+        return tracer
+
     def _write(self) -> None:
         self.trace_path.write_text(json.dumps(self.trace, indent=2), encoding="utf-8")
+
+    def mark_running(self) -> None:
+        self.trace["status"] = "running"
+        self.trace["error"] = None
+        self._write()
 
     def call_tool(self, tool_name: str, tool_input: dict[str, Any], tool_func: Callable[[], T]) -> T:
         sequence = len(self.trace["tool_calls"]) + 1
@@ -130,19 +152,88 @@ class AgentRunTracer:
         self._write()
         return output
 
+    def request_approval(self, gate: str, title: str, payload: dict[str, Any]) -> dict[str, Any]:
+        requests = self.trace.setdefault("approval_requests", [])
+        if not isinstance(requests, list):
+            requests = []
+            self.trace["approval_requests"] = requests
+
+        for request in requests:
+            if isinstance(request, dict) and request.get("gate") == gate and request.get("status") == "pending":
+                return request
+
+        request_record = {
+            "gate": gate,
+            "title": title,
+            "status": "pending",
+            "requested_at": _utc_now().isoformat(),
+            "decided_at": None,
+            "reviewer": None,
+            "comment": None,
+            "payload": _json_safe(payload),
+        }
+        requests.append(request_record)
+        self._write()
+        return request_record
+
+    def record_approval_decision(
+        self,
+        gate: str,
+        decision: str,
+        reviewer: Optional[str] = None,
+        comment: Optional[str] = None,
+    ) -> dict[str, Any]:
+        if decision not in {"approved", "rejected"}:
+            raise ValueError("Approval decision must be either 'approved' or 'rejected'.")
+
+        decided_at = _utc_now().isoformat()
+        decision_record = {
+            "gate": gate,
+            "decision": decision,
+            "reviewer": reviewer,
+            "comment": comment,
+            "decided_at": decided_at,
+        }
+
+        approvals = self.trace.setdefault("human_approvals", {})
+        if not isinstance(approvals, dict):
+            approvals = {}
+            self.trace["human_approvals"] = approvals
+        approvals[gate] = decision_record
+
+        requests = self.trace.setdefault("approval_requests", [])
+        if isinstance(requests, list):
+            for request in reversed(requests):
+                if isinstance(request, dict) and request.get("gate") == gate and request.get("status") == "pending":
+                    request.update(
+                        {
+                            "status": decision,
+                            "decided_at": decided_at,
+                            "reviewer": reviewer,
+                            "comment": comment,
+                        }
+                    )
+                    break
+
+        self._write()
+        return decision_record
+
     def finalize(
         self,
         final_status: str,
         final_output: Optional[dict[str, Any]] = None,
         error: Optional[BaseException | str] = None,
+        trace_status: Optional[str] = None,
+        resume_state: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         end = _utc_now()
         start = datetime.fromisoformat(str(self.trace["start_time"]))
-        self.trace["status"] = "completed" if error is None else "failed"
+        self.trace["status"] = trace_status or ("completed" if error is None else "failed")
         self.trace["final_status"] = final_status
         self.trace["final_output"] = _json_safe(final_output)
         self.trace["end_time"] = end.isoformat()
         self.trace["duration_seconds"] = round((end - start).total_seconds(), 6)
+        self.trace["resume_state"] = _json_safe(resume_state)
         if error is not None:
             self.trace["error"] = str(error)
         self._write()

@@ -131,6 +131,106 @@ def _context_source_paths(testing_context: Optional[dict[str, Any]]) -> list[str
     return source_paths
 
 
+def _retrieved_sources(testing_context: Optional[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not testing_context:
+        return []
+
+    results = testing_context.get("results")
+    if not isinstance(results, list):
+        return []
+
+    sources: list[dict[str, Any]] = []
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        source_path = result.get("source_path")
+        source_type = result.get("source_type")
+        if isinstance(source_path, str) and isinstance(source_type, str):
+            sources.append(
+                {
+                    "source_type": source_type,
+                    "source_path": source_path,
+                    "score": result.get("score"),
+                }
+            )
+    return sources
+
+
+def _has_source_type(test_plan: dict[str, Any], source_type: str) -> bool:
+    retrieved_sources = test_plan.get("retrieved_sources")
+    if not isinstance(retrieved_sources, list):
+        return False
+    return any(isinstance(source, dict) and source.get("source_type") == source_type for source in retrieved_sources)
+
+
+def draft_test_plan(input_path: str, testing_context: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    document = parse_prd(input_path)
+    test_points = extract_test_points(document)
+    retrieved_sources = _retrieved_sources(testing_context)
+    retrieved_source_paths = [source["source_path"] for source in retrieved_sources]
+
+    missing_inputs = list(document.missing_sections)
+    if not any(source["source_type"] == "selector_contract" for source in retrieved_sources):
+        missing_inputs.append("selector_contract")
+    if not test_points:
+        missing_inputs.append("test_cases")
+
+    risks: list[str] = []
+    if document.missing_sections:
+        risks.append("requirement_missing_sections")
+    if "selector_contract" in missing_inputs:
+        risks.append("selector_contract_missing")
+    if not any(source["source_type"] == "test_data_contract" for source in retrieved_sources):
+        risks.append("test_data_contract_not_retrieved")
+
+    return {
+        "input_path": _relative_to_repo(_resolve_repo_path(input_path)),
+        "feature_name": document.feature_name,
+        "page_url": document.page_url,
+        "retrieved_source_paths": retrieved_source_paths,
+        "retrieved_sources": retrieved_sources,
+        "test_cases": [
+            {
+                "id": test_point.id,
+                "title": test_point.title,
+                "type": test_point.type,
+                "preconditions": test_point.preconditions,
+                "steps": test_point.steps,
+                "expected_result": test_point.expected_result,
+                "source_sections": test_point.source_sections,
+                "rationale": test_point.rationale,
+            }
+            for test_point in test_points
+        ],
+        "risks": risks,
+        "missing_inputs": missing_inputs,
+    }
+
+
+def validate_test_plan(test_plan: dict[str, Any]) -> dict[str, Any]:
+    missing_inputs: list[str] = []
+
+    if not test_plan.get("feature_name"):
+        missing_inputs.append("feature_name")
+    if not test_plan.get("page_url"):
+        missing_inputs.append("page_url")
+
+    test_cases = test_plan.get("test_cases")
+    if not isinstance(test_cases, list) or not test_cases:
+        missing_inputs.append("test_cases")
+
+    if not _has_source_type(test_plan, "selector_contract"):
+        missing_inputs.append("selector_contract")
+
+    status = "blocked" if missing_inputs else "passed"
+    return {
+        "status": status,
+        "missing_inputs": missing_inputs,
+        "can_generate": status == "passed",
+        "reason": "test_plan_ready" if status == "passed" else "test_plan_missing_required_inputs",
+    }
+
+
 def generate_test(input_path: str, testing_context: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     document = parse_prd(input_path)
     test_points = extract_test_points(document)
@@ -198,6 +298,8 @@ TOOL_REGISTRY = {
     "normalize_requirement": normalize_requirement,
     "parse_requirement": parse_requirement,
     "retrieve_testing_context": retrieve_testing_context,
+    "draft_test_plan": draft_test_plan,
+    "validate_test_plan": validate_test_plan,
     "generate_test": generate_test,
     "run_test": run_test,
     "create_report": create_report,

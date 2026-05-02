@@ -25,6 +25,13 @@ def _create_agent_run(input_path: str) -> dict[str, object]:
     return response.json()
 
 
+def _create_manual_agent_run(input_path: str) -> dict[str, object]:
+    response = client.post("/api/v1/agent-runs", json={"input_path": input_path, "approval_mode": "manual"})
+
+    assert response.status_code == 200
+    return response.json()
+
+
 def test_healthz_returns_ok() -> None:
     response = client.get("/healthz")
 
@@ -279,6 +286,8 @@ def test_agent_run_endpoint_executes_login_flow_and_returns_trace_path() -> None
     assert payload["artifact_paths"]["summary"].endswith("summary.json")
     assert payload["trace_path"].startswith("data/agent_runs/")
     assert payload["retrieved_context"]["result_count"] >= 1
+    assert payload["test_plan"]["feature_name"] == "User Login"
+    assert payload["plan_validation"]["status"] == "passed"
     assert Path(payload["trace_path"]).exists()
 
 
@@ -311,11 +320,95 @@ def test_agent_run_trace_endpoint_returns_tool_calls() -> None:
     assert [call["tool_name"] for call in tool_calls] == [
         "parse_requirement",
         "retrieve_testing_context",
+        "draft_test_plan",
+        "validate_test_plan",
         "generate_test",
         "run_test",
     ]
     assert all(call["status"] == "succeeded" for call in tool_calls)
     assert trace["final_output"]["artifact_paths"]["summary"].endswith("summary.json")
+
+
+def test_agent_run_manual_approval_flow_pauses_and_resumes() -> None:
+    created = _create_manual_agent_run("data/inputs/sample_prd_login.md")
+
+    assert created["final_status"] == "waiting_for_test_plan_approval"
+    assert created["pending_approval"]["gate"] == "test_plan"
+    assert created["test_plan"]["feature_name"] == "User Login"
+    assert created["run_id"] is None
+
+    plan_response = client.post(
+        f"/api/v1/agent-runs/{created['agent_run_id']}/approvals",
+        json={
+            "gate": "test_plan",
+            "decision": "approved",
+            "reviewer": "pytest",
+            "comment": "plan approved",
+        },
+    )
+    after_plan = plan_response.json()
+
+    assert plan_response.status_code == 200
+    assert after_plan["final_status"] == "waiting_for_execution_approval"
+    assert after_plan["pending_approval"]["gate"] == "execution"
+    assert after_plan["script_path"] == "generated/tests/test_login_generated.py"
+    assert after_plan["run_id"] is None
+
+    execution_response = client.post(
+        f"/api/v1/agent-runs/{created['agent_run_id']}/approvals",
+        json={
+            "gate": "execution",
+            "decision": "approved",
+            "reviewer": "pytest",
+            "comment": "execute",
+        },
+    )
+    after_execution = execution_response.json()
+
+    assert execution_response.status_code == 200
+    assert after_execution["final_status"] == "passed"
+    assert after_execution["run_id"]
+
+    trace_response = client.get(f"/api/v1/agent-runs/{created['agent_run_id']}/trace")
+    trace = trace_response.json()
+
+    assert trace_response.status_code == 200
+    assert trace["status"] == "completed"
+    assert trace["approval_requests"][0]["gate"] == "test_plan"
+    assert trace["approval_requests"][0]["status"] == "approved"
+    assert trace["approval_requests"][1]["gate"] == "execution"
+    assert trace["approval_requests"][1]["status"] == "approved"
+    assert trace["human_approvals"]["test_plan"]["decision"] == "approved"
+    assert trace["human_approvals"]["execution"]["decision"] == "approved"
+
+
+def test_agent_run_manual_rejects_plan_without_generation() -> None:
+    created = _create_manual_agent_run("data/inputs/sample_prd_login.md")
+
+    reject_response = client.post(
+        f"/api/v1/agent-runs/{created['agent_run_id']}/approvals",
+        json={
+            "gate": "test_plan",
+            "decision": "rejected",
+            "reviewer": "pytest",
+            "comment": "needs more detail",
+        },
+    )
+    rejected = reject_response.json()
+
+    assert reject_response.status_code == 200
+    assert rejected["final_status"] == "rejected"
+    assert rejected["script_path"] is None
+    assert rejected["run_id"] is None
+
+    trace_response = client.get(f"/api/v1/agent-runs/{created['agent_run_id']}/trace")
+    trace = trace_response.json()
+    assert [call["tool_name"] for call in trace["tool_calls"]] == [
+        "parse_requirement",
+        "retrieve_testing_context",
+        "draft_test_plan",
+        "validate_test_plan",
+    ]
 
 
 def test_agent_run_lookup_endpoints_return_404_for_missing_agent_run() -> None:

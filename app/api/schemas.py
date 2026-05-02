@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,14 @@ class ReportRequest(BaseModel):
 
 class AgentRunRequest(BaseModel):
     input_path: str
+    approval_mode: Literal["auto", "manual"] = "auto"
+
+
+class AgentApprovalRequest(BaseModel):
+    gate: Literal["test_plan", "execution", "report"]
+    decision: Literal["approved", "rejected"]
+    reviewer: Optional[str] = None
+    comment: Optional[str] = None
 
 
 class HealthResponse(BaseModel):
@@ -124,6 +132,11 @@ class AgentRunResponse(BaseModel):
     report_path: Optional[str] = None
     trace_path: str
     retrieved_context: Optional[dict[str, Any]] = None
+    test_plan: Optional[dict[str, Any]] = None
+    plan_validation: Optional[dict[str, Any]] = None
+    approval_mode: Optional[str] = None
+    pending_approval: Optional[dict[str, Any]] = None
+    human_approvals: dict[str, Any] = Field(default_factory=dict)
     error: Optional[str] = None
 
 
@@ -137,6 +150,8 @@ class AgentRunSummaryResponse(BaseModel):
     duration_seconds: Optional[float] = None
     final_output: Optional[dict[str, Any]] = None
     artifact_paths: dict[str, str]
+    approval_requests: list[dict[str, Any]] = Field(default_factory=list)
+    human_approvals: dict[str, Any] = Field(default_factory=dict)
     error: Optional[str] = None
 
 
