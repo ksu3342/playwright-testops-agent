@@ -97,6 +97,7 @@ python -m app.main report --input data/runs/<run_id>
 - 当前实现仍然是 `CLI-first TestOps Agent MVP + thin FastAPI wrapper`。
 - 当前持久化仍然是文件系统，不是 Redis、MySQL 或其他数据库驱动的平台。
 - 这里没有前端、认证层、多 Agent 编排或完整测试平台的声称。
+- KB 检索默认是 deterministic file-backed；可选 `langchain_local` 只是 LangChain Core `Document` / `BaseRetriever` 本地适配层，不是生产级向量库或 embedding pipeline。
 - 这也不是队列驱动的异步执行系统或生产级平台。
 
 ## run_id 现在能证明什么

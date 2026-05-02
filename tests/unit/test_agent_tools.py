@@ -7,6 +7,7 @@ from app.agent.tools import (
     create_report,
     draft_test_plan,
     generate_test,
+    get_langchain_tools,
     get_artifacts,
     get_run_summary,
     parse_requirement,
@@ -56,6 +57,7 @@ def test_retrieval_tool_returns_context_for_generation() -> None:
 
     assert retrieval_result["result_count"] >= 3
     assert retrieval_result["retrieval_backend"] == "file_lexical"
+    assert retrieval_result["retrieval_implementation"] == "deterministic_file_lexical"
     assert "data/contracts/demo_app_selectors.json" in [
         item["source_path"] for item in retrieval_result["results"]
     ]
@@ -165,3 +167,11 @@ def test_report_tool_generates_report_for_failed_run() -> None:
     assert report_result["status"] == "failed"
     assert report_result["report_path"].startswith("generated/reports/")
     assert Path(report_result["report_path"]).exists()
+
+
+def test_langchain_tool_export_wraps_existing_tool_registry() -> None:
+    langchain_tools = get_langchain_tools()
+    tool_names = {tool.name for tool in langchain_tools}
+
+    assert set(TOOL_REGISTRY).issubset(tool_names)
+    assert "retrieve_testing_context" in tool_names

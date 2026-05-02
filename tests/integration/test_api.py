@@ -37,8 +37,15 @@ def _create_agent_run(input_path: str) -> dict[str, object]:
     return response.json()
 
 
-def _create_manual_agent_run(input_path: str) -> dict[str, object]:
-    response = client.post("/api/v1/agent-runs", json={"input_path": input_path, "approval_mode": "manual"})
+def _create_manual_agent_run(input_path: str, retrieval_backend: str = "file_lexical") -> dict[str, object]:
+    response = client.post(
+        "/api/v1/agent-runs",
+        json={
+            "input_path": input_path,
+            "approval_mode": "manual",
+            "retrieval_backend": retrieval_backend,
+        },
+    )
 
     assert response.status_code == 200
     return response.json()
@@ -79,8 +86,36 @@ def test_kb_ingest_then_search_api_returns_indexed_document() -> None:
     assert search_response.status_code == 200
     assert search_payload["query"] == unique_token
     assert search_payload["max_results"] == 5
+    assert search_payload["retrieval_backend"] == "file_lexical"
+    assert search_payload["retrieval_implementation"] == "deterministic_file_lexical"
     assert search_payload["result_count"] >= 1
     assert any(item["source_path"] == ingest_payload["source_path"] for item in search_payload["results"])
+
+
+def test_kb_search_api_supports_langchain_local_backend() -> None:
+    response = client.get(
+        "/api/v1/kb/search",
+        params={"query": "login selectors fixture data", "max_results": 5, "backend": "langchain_local"},
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["retrieval_backend"] == "langchain_local"
+    assert payload["retrieval_implementation"] == "langchain_local_documents"
+    assert payload["result_count"] >= 2
+    source_paths = [item["source_path"] for item in payload["results"]]
+    assert "data/contracts/demo_app_selectors.json" in source_paths
+    assert "data/contracts/demo_app_test_data.json" in source_paths
+
+
+def test_kb_search_api_rejects_invalid_backend() -> None:
+    response = client.get(
+        "/api/v1/kb/search",
+        params={"query": "login", "backend": "not_a_backend"},
+    )
+
+    assert response.status_code == 400
+    assert "Unsupported retrieval backend" in response.json()["detail"]
 
 
 def test_normalize_endpoint_accepts_inline_content() -> None:
@@ -334,10 +369,48 @@ def test_agent_run_endpoint_executes_login_flow_and_returns_trace_path() -> None
     assert payload["plan_validation"]["status"] == "passed"
     assert payload["planning_strategy"] == "deterministic_scaffold"
     assert payload["retrieval_backend"] == "file_lexical"
+    assert payload["retrieval_implementation"] == "deterministic_file_lexical"
     assert payload["run_summary"]["run_id"] == payload["run_id"]
     assert payload["queried_artifacts"]["run_id"] == payload["run_id"]
     assert payload["checkpoint_mode"] == "trace_resume_state"
     assert Path(payload["trace_path"]).exists()
+
+
+def test_agent_run_endpoint_accepts_langchain_local_retrieval_backend() -> None:
+    response = client.post(
+        "/api/v1/agent-runs",
+        json={
+            "input_path": "data/inputs/sample_prd_login.md",
+            "retrieval_backend": "langchain_local",
+        },
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["final_status"] == "passed"
+    assert payload["retrieval_backend"] == "langchain_local"
+    assert payload["retrieval_implementation"] == "langchain_local_documents"
+
+    trace_response = client.get(f"/api/v1/agent-runs/{payload['agent_run_id']}/trace")
+    trace = trace_response.json()
+
+    assert trace_response.status_code == 200
+    assert trace["input"]["retrieval_backend"] == "langchain_local"
+    assert trace["final_output"]["retrieval_backend"] == "langchain_local"
+    assert trace["final_output"]["retrieval_implementation"] == "langchain_local_documents"
+
+
+def test_agent_run_endpoint_rejects_invalid_retrieval_backend() -> None:
+    response = client.post(
+        "/api/v1/agent-runs",
+        json={
+            "input_path": "data/inputs/sample_prd_login.md",
+            "retrieval_backend": "not_a_backend",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Unsupported retrieval backend" in response.json()["detail"]
 
 
 def test_agent_run_endpoint_accepts_task_text_and_lists_by_module() -> None:
@@ -406,14 +479,17 @@ def test_agent_run_trace_endpoint_returns_tool_calls() -> None:
     assert trace["final_output"]["artifact_paths"]["summary"].endswith("summary.json")
     assert trace["final_output"]["checkpoint_mode"] == "trace_resume_state"
     assert trace["final_output"]["retrieval_backend"] == "file_lexical"
+    assert trace["final_output"]["retrieval_implementation"] == "deterministic_file_lexical"
 
 
 def test_agent_run_manual_approval_flow_pauses_and_resumes() -> None:
-    created = _create_manual_agent_run("data/inputs/sample_prd_login.md")
+    created = _create_manual_agent_run("data/inputs/sample_prd_login.md", retrieval_backend="langchain_local")
 
     assert created["final_status"] == "waiting_for_test_plan_approval"
     assert created["pending_approval"]["gate"] == "test_plan"
     assert created["test_plan"]["feature_name"] == "User Login"
+    assert created["retrieval_backend"] == "langchain_local"
+    assert created["retrieval_implementation"] == "langchain_local_documents"
     assert created["run_id"] is None
 
     plan_response = client.post(
@@ -431,6 +507,7 @@ def test_agent_run_manual_approval_flow_pauses_and_resumes() -> None:
     assert after_plan["final_status"] == "waiting_for_execution_approval"
     assert after_plan["pending_approval"]["gate"] == "execution"
     assert after_plan["script_path"] == "generated/tests/test_login_generated.py"
+    assert after_plan["retrieval_backend"] == "langchain_local"
     assert after_plan["run_id"] is None
 
     execution_response = client.post(
@@ -447,6 +524,8 @@ def test_agent_run_manual_approval_flow_pauses_and_resumes() -> None:
     assert execution_response.status_code == 200
     assert after_execution["final_status"] == "passed"
     assert after_execution["run_id"]
+    assert after_execution["retrieval_backend"] == "langchain_local"
+    assert after_execution["retrieval_implementation"] == "langchain_local_documents"
 
     trace_response = client.get(f"/api/v1/agent-runs/{created['agent_run_id']}/trace")
     trace = trace_response.json()
@@ -459,6 +538,8 @@ def test_agent_run_manual_approval_flow_pauses_and_resumes() -> None:
     assert trace["approval_requests"][1]["status"] == "approved"
     assert trace["human_approvals"]["test_plan"]["decision"] == "approved"
     assert trace["human_approvals"]["execution"]["decision"] == "approved"
+    assert trace["input"]["retrieval_backend"] == "langchain_local"
+    assert trace["final_output"]["retrieval_backend"] == "langchain_local"
 
 
 def test_agent_run_manual_task_text_flow_uses_approve_alias() -> None:

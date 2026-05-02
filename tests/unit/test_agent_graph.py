@@ -12,6 +12,8 @@ def _load_trace(trace_path: str) -> dict[str, object]:
 
 def _fake_retrieval() -> dict[str, object]:
     return {
+        "retrieval_backend": "file_lexical",
+        "retrieval_implementation": "deterministic_file_lexical",
         "result_count": 1,
         "results": [{"source_type": "selector_contract", "source_path": "data/contracts/demo_app_selectors.json"}],
     }
@@ -39,8 +41,10 @@ def _patch_passed_plan_tools(monkeypatch) -> None:
         max_results: int = 5,
         source_types=None,
         query=None,
+        backend: str = "file_lexical",
     ) -> dict[str, object]:
         assert source_types is not None
+        assert backend == "file_lexical"
         return _fake_retrieval()
 
     def fake_draft_test_plan(input_path: str, testing_context=None, information_needs=None) -> dict[str, object]:
@@ -102,6 +106,8 @@ def test_langgraph_agent_graph_runs_passed_path_with_expected_nodes(monkeypatch)
     assert state["final_output"]["planning_strategy"] == "deterministic_scaffold"
     assert state["final_output"]["checkpoint_mode"] == "trace_resume_state"
     assert state["final_output"]["run_summary"]["run_id"] == "fake_passed_run"
+    assert state["final_output"]["retrieval_backend"] == "file_lexical"
+    assert state["final_output"]["retrieval_implementation"] == "deterministic_file_lexical"
 
     trace = _load_trace(state["final_output"]["trace_path"])
     assert [call["tool_name"] for call in trace["tool_calls"]] == [

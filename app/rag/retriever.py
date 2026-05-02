@@ -25,6 +25,10 @@ SOURCE_TYPE_PRIORITY = {
     "bug_report": 0,
     "note": 0,
 }
+RETRIEVAL_IMPLEMENTATIONS = {
+    "file_lexical": "deterministic_file_lexical",
+    "langchain_local": "langchain_local_documents",
+}
 
 
 @dataclass(frozen=True)
@@ -280,24 +284,20 @@ def _knowledge_root_payload() -> list[dict[str, str]]:
     return roots
 
 
-def retrieve_testing_context(
-    input_path: Optional[str] = None,
-    query: Optional[str] = None,
-    max_results: int = 5,
-    source_types: Optional[list[str]] = None,
-) -> dict[str, Any]:
-    """Retrieve local testing context before scaffold generation.
+def validate_retrieval_backend(backend: str) -> str:
+    if backend not in RETRIEVAL_IMPLEMENTATIONS:
+        expected = ", ".join(sorted(RETRIEVAL_IMPLEMENTATIONS))
+        raise ValueError(f"Unsupported retrieval backend: {backend}. Expected one of: {expected}.")
+    return backend
 
-    This is deliberately deterministic and file-backed. It is RAG plumbing for
-    product docs, test guidelines, selector/test-data contracts, recent run
-    summaries, and bug report drafts; it is not a vector database.
-    """
-    query_text = _query_text(input_path, query)
-    query_tokens = set(_tokenize(query_text))
-    allowed_source_types = {source_type for source_type in (source_types or []) if source_type}
+
+def _rank_documents(
+    documents: Iterable[KnowledgeDocument],
+    query_tokens: set[str],
+    allowed_source_types: set[str],
+) -> list[tuple[int, KnowledgeDocument]]:
     scored: list[tuple[int, KnowledgeDocument]] = []
-
-    for document in _iter_documents():
+    for document in documents:
         if allowed_source_types and document.source_type not in allowed_source_types:
             continue
         score = _score_document(query_tokens, document)
@@ -311,7 +311,13 @@ def retrieve_testing_context(
             _relative_to_repo(item[1].source_path),
         )
     )
+    return scored
 
+
+def _select_documents(
+    scored: list[tuple[int, KnowledgeDocument]],
+    max_results: int,
+) -> list[tuple[int, KnowledgeDocument]]:
     desired_count = max(max_results, 0)
     selected: list[tuple[int, KnowledgeDocument]] = []
     source_type_counts: dict[str, int] = {}
@@ -334,7 +340,14 @@ def retrieve_testing_context(
             selected.append((score, document))
             selected_paths.add(document.source_path)
 
-    results = [
+    return selected
+
+
+def _result_payload(
+    selected: list[tuple[int, KnowledgeDocument]],
+    query_tokens: set[str],
+) -> list[dict[str, Any]]:
+    return [
         {
             "rank": index,
             "source_type": document.source_type,
@@ -346,11 +359,45 @@ def retrieve_testing_context(
         for index, (score, document) in enumerate(selected, start=1)
     ]
 
+
+def retrieve_testing_context(
+    input_path: Optional[str] = None,
+    query: Optional[str] = None,
+    max_results: int = 5,
+    source_types: Optional[list[str]] = None,
+    backend: str = "file_lexical",
+) -> dict[str, Any]:
+    """Retrieve local testing context before scaffold generation.
+
+    This is deliberately deterministic and file-backed. It is RAG plumbing for
+    product docs, test guidelines, selector/test-data contracts, recent run
+    summaries, and bug report drafts; it is not a vector database.
+    """
+    backend = validate_retrieval_backend(backend)
+    query_text = _query_text(input_path, query)
+    query_tokens = set(_tokenize(query_text))
+    allowed_source_types = {source_type for source_type in (source_types or []) if source_type}
+
+    if backend == "langchain_local":
+        from app.rag.langchain_retriever import retrieve_langchain_local_documents
+
+        selected = retrieve_langchain_local_documents(
+            query_text=query_text,
+            max_results=max_results,
+            source_types=source_types,
+        )
+    else:
+        scored = _rank_documents(_iter_documents(), query_tokens, allowed_source_types)
+        selected = _select_documents(scored, max_results)
+
+    results = _result_payload(selected, query_tokens)
+
     return {
         "input_path": input_path,
         "query": query if query is not None else None,
         "source_types": sorted(allowed_source_types) if allowed_source_types else None,
-        "retrieval_backend": "file_lexical",
+        "retrieval_backend": backend,
+        "retrieval_implementation": RETRIEVAL_IMPLEMENTATIONS[backend],
         "query_token_count": len(query_tokens),
         "knowledge_roots": _knowledge_root_payload(),
         "result_count": len(results),

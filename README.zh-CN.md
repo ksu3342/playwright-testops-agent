@@ -20,7 +20,7 @@
 - 可选 `normalize` 之后，主流程已经能走通 `parse -> extract -> generate -> run -> report`。
 - CLI 主入口已经覆盖 `normalize`、`parse`、`generate`、`run`、`report`。
 - 轻量 FastAPI 包装层直接复用 Python 核心函数，提供 health、流程执行、run 查询与 artifact 查询接口。
-- Agent run 接口已经支持 `input_path` 或 `task_text`，能记录 trace、分析信息需求、支持人工审批节点，并提供本地 file-backed KB ingest/search。
+- Agent run 接口已经支持 `input_path` 或 `task_text`，能记录 trace、分析信息需求、支持人工审批节点，并提供本地 file-backed KB ingest/search；也可以选择 LangChain Core 本地 retriever adapter。
 - 生成脚手架、运行摘要与报告草稿都会在运行时落盘到 `generated/tests/`、`data/runs/` 和 `generated/reports/`。这些输出可以本地复现，但不会作为固定公开样例提交。
 - 仓库里已经有 Docker 打包入口、compose 配置和 API 集成测试。
 
@@ -72,6 +72,8 @@ python -m app.main report --input data/runs/<run_id>
 - [app/core/generator.py](./app/core/generator.py)、[app/core/runner.py](./app/core/runner.py)、[app/core/selector_contract.py](./app/core/selector_contract.py) 实现了生成、运行状态判定和 selector contract 加载。
 - [data/contracts/demo_app_selectors.json](./data/contracts/demo_app_selectors.json) 与 [data/contracts/demo_app_test_data.json](./data/contracts/demo_app_test_data.json) 让 selector 和 fixture 来源保持 file-backed。
 - [demo_app/main.py](./demo_app/main.py) 是 executable login flow 使用的本地 demo target。
+- [app/rag/langchain_retriever.py](./app/rag/langchain_retriever.py) 使用 LangChain Core `Document` / `BaseRetriever` 接口包装本地 KB documents，同时保留确定性本地评分。
+- [app/agent/tools.py](./app/agent/tools.py) 把受控 workflow 函数作为 Python tools 暴露，并提供 LangChain-compatible `StructuredTool` 导出函数作为接口证据。
 - [tests/unit/test_generator.py](./tests/unit/test_generator.py)、[tests/unit/test_runner.py](./tests/unit/test_runner.py)、[tests/demo/test_demo_app.py](./tests/demo/test_demo_app.py) 验证 generator、runner 和 demo app 行为。
 - [tests/integration/test_api.py](./tests/integration/test_api.py) 与 [tests/integration/test_pipeline.py](./tests/integration/test_pipeline.py) 覆盖 API 和 pipeline 层集成路径。
 
@@ -81,7 +83,7 @@ python -m app.main report --input data/runs/<run_id>
 - 可选的 `normalize` 步骤发生在确定性主流程之前，也是当前唯一的 LLM 辅助步骤
 - 确定性主流程是：`parse -> extract -> generate -> run -> report`
 - 当前运行产物与报告持久化仍然使用文件系统：`data/runs`、`generated/reports`
-- 当前 KB 检索也是 file-backed：`data/kb/index.json` 记录索引，`data/kb/uploaded/` 保存 API 上传内容
+- 当前 KB 检索默认仍是 file-backed：`data/kb/index.json` 记录索引，`data/kb/uploaded/` 保存 API 上传内容；`backend=langchain_local` 只把同一批本地 KB 接入 LangChain Core document/retriever 接口，不做 embedding
 - 当前 Agent checkpoint 是 `trace.json + resume_state`，不是 LangGraph 原生 durable execution
 - `/api/v1/run` 仍然是同步执行，不是队列或 worker 驱动的异步任务平台
 
@@ -130,7 +132,7 @@ API 目前能做什么：
 - 通过 HTTP 暴露相同的核心流程
 - 继续使用文件系统保存运行产物
 - 通过 `agent-runs` 保存 Agent 决策轨迹，并用审批接口恢复人工确认后的流程
-- 通过本地文件索引做确定性 KB 检索
+- 通过本地文件索引做确定性 KB 检索，也可以用 `langchain_local` backend 走 LangChain Core 本地适配层
 - 通过 `task_text` 提交测试任务，并由 Agent 记录 `information_needs` 决定检索哪些上下文类型
 - 保留 `blocked`、`failed`、`environment_error` 这类诚实状态
 
@@ -138,7 +140,7 @@ API 目前不声称什么：
 - 不包含认证
 - 不包含数据库状态
 - 不包含队列、worker 或异步任务调度
-- 不包含生产级向量数据库或 LangChain 向量检索
+- 不包含生产级向量数据库、embedding pipeline 或 LangChain vector store；`langchain_local` 只是本地 `Document` / `BaseRetriever` adapter
 - 不声称 LLM 已负责测试计划生成；当前计划生成是 deterministic scaffold
 - 不声称 LangGraph 原生 checkpoint 或 durable execution
 - 不把当前实现包装成生产级测试平台
@@ -340,7 +342,7 @@ curl.exe -X POST "http://127.0.0.1:8000/api/v1/agent-runs" `
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8000/api/v1/agent-runs" `
   -H "Content-Type: application/json" `
-  -d '{"task_text":"Verify login happy path with valid credentials.","target_url":"/login","module":"login","constraints":["Use selector contracts"]}'
+  -d '{"task_text":"Verify login happy path with valid credentials.","target_url":"/login","module":"login","constraints":["Use selector contracts"],"retrieval_backend":"langchain_local"}'
 ```
 
 查询 agent run 列表：
@@ -368,8 +370,10 @@ curl.exe -X POST "http://127.0.0.1:8000/api/v1/kb/ingest" `
 检索本地 KB：
 
 ```powershell
-curl.exe "http://127.0.0.1:8000/api/v1/kb/search?query=login%20selector&max_results=5"
+curl.exe "http://127.0.0.1:8000/api/v1/kb/search?query=login%20selector&max_results=5&backend=langchain_local"
 ```
+
+`kb/search` 和 `agent-runs` 会返回 `retrieval_backend` 与 `retrieval_implementation`，用于区分默认 `file_lexical` 和 LangChain Core 本地 adapter。
 
 ## Docker 使用
 

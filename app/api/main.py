@@ -45,7 +45,7 @@ from app.core.parser import parse_prd
 from app.core.reporter import create_bug_report_from_run
 from app.core.runner import run_test_script
 from app.rag.ingest import ingest_document
-from app.rag.retriever import retrieve_testing_context
+from app.rag.retriever import retrieve_testing_context, validate_retrieval_backend
 
 
 API_INPUTS_DIR = REPO_ROOT / "data" / "api_inputs"
@@ -337,7 +337,16 @@ def get_run_artifacts(run_id: str) -> RunArtifactsResponse:
 @app.post("/api/v1/agent-runs", response_model=AgentRunResponse)
 def create_agent_run(request: AgentRunRequest) -> AgentRunResponse:
     input_path, task = _resolve_agent_run_input(request)
-    result = run_agent_task(input_path, approval_mode=request.approval_mode, task=task or None)
+    try:
+        retrieval_backend = validate_retrieval_backend(request.retrieval_backend)
+    except ValueError as exc:
+        _raise_bad_request(exc)
+    result = run_agent_task(
+        input_path,
+        approval_mode=request.approval_mode,
+        task=task or None,
+        retrieval_backend=retrieval_backend,
+    )
     return AgentRunResponse(**result)
 
 
@@ -447,8 +456,12 @@ def ingest_kb_document(request: KbIngestRequest) -> KbIngestResponse:
 def search_kb(
     query: str = Query(..., min_length=1),
     max_results: int = Query(5, ge=1, le=20),
+    backend: str = Query("file_lexical"),
 ) -> KbSearchResponse:
-    result = retrieve_testing_context(query=query, max_results=max_results)
+    try:
+        result = retrieve_testing_context(query=query, max_results=max_results, backend=backend)
+    except ValueError as exc:
+        _raise_bad_request(exc)
     items = [
         {
             "source_type": item["source_type"],
@@ -462,6 +475,8 @@ def search_kb(
     return KbSearchResponse(
         query=query,
         max_results=max_results,
+        retrieval_backend=str(result["retrieval_backend"]),
+        retrieval_implementation=str(result["retrieval_implementation"]),
         result_count=int(result["result_count"]),
         results=items,
     )

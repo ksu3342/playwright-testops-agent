@@ -76,6 +76,9 @@ def _build_final_output(
         "information_needs": information_needs,
         "retrieved_context": _retrieved_context_summary(retrieval_result),
         "retrieval_backend": retrieval_result.get("retrieval_backend") if isinstance(retrieval_result, dict) else None,
+        "retrieval_implementation": (
+            retrieval_result.get("retrieval_implementation") if isinstance(retrieval_result, dict) else None
+        ),
         "test_plan": test_plan,
         "planning_strategy": test_plan.get("planning_strategy"),
         "plan_validation": plan_validation,
@@ -102,6 +105,7 @@ def _resume_state_from_graph_state(graph_state: dict[str, Any]) -> dict[str, Any
         "report_approved",
         "report_exported",
         "task",
+        "retrieval_backend",
     )
     return {key: graph_state[key] for key in keys if key in graph_state}
 
@@ -119,6 +123,7 @@ def _run_with_tracer(
     approvals: Optional[dict[str, Any]] = None,
     resume_state: Optional[dict[str, Any]] = None,
     task: Optional[dict[str, Any]] = None,
+    retrieval_backend: str = "file_lexical",
 ) -> dict[str, Any]:
     trace_path = tracer.trace["artifact_paths"]["trace"]
     approvals = approvals or {}
@@ -132,6 +137,7 @@ def _run_with_tracer(
             approvals=approvals,
             resume_state=resume_state,
             task=task,
+            retrieval_backend=retrieval_backend,
         )
         final_status = str(graph_state.get("final_status", "environment_error"))
         final_output = graph_state.get("final_output")
@@ -182,15 +188,26 @@ def run_agent_task(
     agent_run_id: Optional[str] = None,
     approval_mode: ApprovalMode = "auto",
     task: Optional[dict[str, Any]] = None,
+    retrieval_backend: str = "file_lexical",
 ) -> dict[str, Any]:
-    initial_input = {"input_path": input_path, "approval_mode": approval_mode}
+    initial_input = {
+        "input_path": input_path,
+        "approval_mode": approval_mode,
+        "retrieval_backend": retrieval_backend,
+    }
     if task:
         initial_input["task"] = task
     tracer = AgentRunTracer.create(
         initial_input,
         agent_run_id=agent_run_id,
     )
-    return _run_with_tracer(tracer, input_path, approval_mode=approval_mode, task=task)
+    return _run_with_tracer(
+        tracer,
+        input_path,
+        approval_mode=approval_mode,
+        task=task,
+        retrieval_backend=retrieval_backend,
+    )
 
 
 def continue_agent_run(
@@ -223,6 +240,9 @@ def continue_agent_run(
     task = input_payload.get("task")
     if not isinstance(task, dict):
         task = None
+    retrieval_backend = input_payload.get("retrieval_backend")
+    if not isinstance(retrieval_backend, str):
+        retrieval_backend = "file_lexical"
 
     tracer.record_approval_decision(gate, decision, reviewer=reviewer, comment=comment)
 
@@ -241,4 +261,5 @@ def continue_agent_run(
         approvals=approvals,
         resume_state=resume_state,
         task=task,
+        retrieval_backend=retrieval_backend,
     )

@@ -16,6 +16,7 @@ class AgentGraphState(TypedDict, total=False):
     input_path: str
     task: dict[str, Any]
     trace_path: str
+    retrieval_backend: str
     approval_mode: ApprovalMode
     approvals: dict[str, Any]
     parse_result: dict[str, Any]
@@ -127,6 +128,7 @@ def _build_final_output(state: AgentGraphState) -> dict[str, Any]:
         "information_needs": state.get("information_needs"),
         "retrieved_context": _retrieved_context_summary(state.get("retrieval_result")),
         "retrieval_backend": retrieval_result.get("retrieval_backend"),
+        "retrieval_implementation": retrieval_result.get("retrieval_implementation"),
         "test_plan": state.get("test_plan"),
         "planning_strategy": test_plan.get("planning_strategy"),
         "plan_validation": state.get("plan_validation"),
@@ -166,6 +168,7 @@ def _retrieve_context_node(tracer: AgentRunTracer):
         retrieval_query = information_needs.get("retrieval_query")
         if not isinstance(retrieval_query, str):
             retrieval_query = None
+        retrieval_backend = str(state.get("retrieval_backend") or "file_lexical")
         retrieval_result = tracer.call_tool(
             "retrieve_testing_context",
             {
@@ -173,12 +176,14 @@ def _retrieve_context_node(tracer: AgentRunTracer):
                 "max_results": 5,
                 "source_types": source_types,
                 "query": retrieval_query,
+                "backend": retrieval_backend,
             },
             lambda: tools.retrieve_testing_context(
                 input_path,
                 max_results=5,
                 source_types=source_types,
                 query=retrieval_query,
+                backend=retrieval_backend,
             ),
         )
         return {"retrieval_result": retrieval_result}
@@ -478,11 +483,13 @@ def invoke_agent_graph(
     approvals: Optional[dict[str, Any]] = None,
     resume_state: Optional[dict[str, Any]] = None,
     task: Optional[dict[str, Any]] = None,
+    retrieval_backend: str = "file_lexical",
 ) -> AgentGraphState:
     graph = build_agent_graph(tracer)
     initial_state: AgentGraphState = {
         "input_path": input_path,
         "trace_path": tracer.trace["artifact_paths"]["trace"],
+        "retrieval_backend": retrieval_backend,
         "approval_mode": approval_mode,
         "approvals": approvals or {},
     }

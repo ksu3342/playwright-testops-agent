@@ -165,6 +165,7 @@ def retrieve_testing_context(
     max_results: int = 5,
     source_types: Optional[list[str]] = None,
     query: Optional[str] = None,
+    backend: str = "file_lexical",
 ) -> dict[str, Any]:
     return _json_safe(
         retrieve_local_testing_context(
@@ -172,6 +173,7 @@ def retrieve_testing_context(
             query=query,
             max_results=max_results,
             source_types=source_types,
+            backend=backend,
         )
     )
 
@@ -406,3 +408,32 @@ TOOL_REGISTRY = {
     "get_artifacts": get_artifacts,
     "collect_run_evidence": collect_run_evidence,
 }
+
+
+TOOL_DESCRIPTIONS = {
+    "normalize_requirement": "Normalize a requirement file into the parser-friendly PRD markdown format.",
+    "parse_requirement": "Parse a PRD or generated task markdown file into structured requirement data.",
+    "analyze_information_needs": "Analyze which testing context sources are needed before planning.",
+    "retrieve_testing_context": "Retrieve local testing context from product docs, contracts, runs, and reports.",
+    "draft_test_plan": "Draft a deterministic test plan from requirements and retrieved context.",
+    "validate_test_plan": "Validate that a test plan has enough reviewed inputs for generation.",
+    "generate_test": "Generate a Playwright pytest script through the controlled generator.",
+    "run_test": "Run a generated or fixture pytest script and collect execution artifacts.",
+    "create_report": "Create a defect report draft for a failed run.",
+    "get_run_summary": "Read a saved run summary artifact.",
+    "get_artifacts": "Read artifact paths and lineage for a saved run.",
+    "collect_run_evidence": "Collect run summary and artifact evidence for a saved run.",
+}
+
+
+def get_langchain_tools() -> list[Any]:
+    from langchain_core.tools import StructuredTool
+
+    return [
+        StructuredTool.from_function(
+            func=tool,
+            name=name,
+            description=TOOL_DESCRIPTIONS[name],
+        )
+        for name, tool in TOOL_REGISTRY.items()
+    ]

@@ -11,6 +11,7 @@ def test_agent_run_request_keeps_input_path_compatibility() -> None:
     assert request.input_path == "data/inputs/sample_prd_login.md"
     assert request.task_text is None
     assert request.approval_mode == "auto"
+    assert request.retrieval_backend == "file_lexical"
 
 
 def test_agent_run_request_accepts_task_text_payload() -> None:
@@ -20,6 +21,7 @@ def test_agent_run_request_accepts_task_text_payload() -> None:
         module="login",
         constraints=["Use selector contracts"],
         approval_mode="manual",
+        retrieval_backend="langchain_local",
     )
 
     assert request.input_path is None
@@ -28,6 +30,7 @@ def test_agent_run_request_accepts_task_text_payload() -> None:
     assert request.module == "login"
     assert request.constraints == ["Use selector contracts"]
     assert request.approval_mode == "manual"
+    assert request.retrieval_backend == "langchain_local"
 
 
 def test_agent_run_request_requires_input_path_or_task_text() -> None:

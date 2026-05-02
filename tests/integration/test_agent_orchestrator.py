@@ -41,6 +41,8 @@ def test_agent_orchestrator_records_blocked_search_trace() -> None:
     assert trace["final_output"]["plan_validation"]["status"] == "passed"
     assert trace["final_output"]["run_summary"]["run_id"] == result["run_id"]
     assert trace["final_output"]["checkpoint_mode"] == "trace_resume_state"
+    assert trace["final_output"]["retrieval_backend"] == "file_lexical"
+    assert trace["final_output"]["retrieval_implementation"] == "deterministic_file_lexical"
 
 
 def test_agent_orchestrator_records_passed_login_trace() -> None:
@@ -63,9 +65,16 @@ def test_agent_orchestrator_invokes_report_tool_for_failed_run(monkeypatch) -> N
     def fake_parse_requirement(input_path: str) -> dict[str, object]:
         return {"resolved_input_path": input_path, "document": {"feature_name": "Fake"}}
 
-    def fake_retrieve_testing_context(input_path: str, max_results: int = 5, source_types=None, query=None) -> dict[str, object]:
+    def fake_retrieve_testing_context(
+        input_path: str,
+        max_results: int = 5,
+        source_types=None,
+        query=None,
+        backend: str = "file_lexical",
+    ) -> dict[str, object]:
         return {
             "retrieval_backend": "file_lexical",
+            "retrieval_implementation": "deterministic_file_lexical",
             "result_count": 1,
             "results": [{"source_type": "selector_contract", "source_path": "data/contracts/demo_app_selectors.json"}],
         }
@@ -196,9 +205,16 @@ def test_agent_orchestrator_manual_failed_run_approves_report_draft(monkeypatch)
     def fake_parse_requirement(input_path: str) -> dict[str, object]:
         return {"resolved_input_path": input_path, "document": {"feature_name": "Fake", "page_url": "/fake"}}
 
-    def fake_retrieve_testing_context(input_path: str, max_results: int = 5, source_types=None, query=None) -> dict[str, object]:
+    def fake_retrieve_testing_context(
+        input_path: str,
+        max_results: int = 5,
+        source_types=None,
+        query=None,
+        backend: str = "file_lexical",
+    ) -> dict[str, object]:
         return {
             "retrieval_backend": "file_lexical",
+            "retrieval_implementation": "deterministic_file_lexical",
             "result_count": 1,
             "results": [{"source_type": "selector_contract", "source_path": "data/contracts/demo_app_selectors.json"}],
         }

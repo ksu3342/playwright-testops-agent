@@ -28,6 +28,7 @@ class AgentRunRequest(BaseModel):
     module: Optional[str] = None
     constraints: list[str] = Field(default_factory=list)
     approval_mode: Literal["auto", "manual"] = "auto"
+    retrieval_backend: str = "file_lexical"
 
     @model_validator(mode="after")
     def require_input_path_or_task_text(self) -> "AgentRunRequest":
@@ -164,6 +165,7 @@ class AgentRunResponse(BaseModel):
     information_needs: Optional[dict[str, Any]] = None
     retrieved_context: Optional[dict[str, Any]] = None
     retrieval_backend: Optional[str] = None
+    retrieval_implementation: Optional[str] = None
     test_plan: Optional[dict[str, Any]] = None
     planning_strategy: Optional[str] = None
     plan_validation: Optional[dict[str, Any]] = None
@@ -230,5 +232,7 @@ class KbSearchResultResponse(BaseModel):
 class KbSearchResponse(BaseModel):
     query: str
     max_results: int
+    retrieval_backend: str
+    retrieval_implementation: str
     result_count: int
     results: list[KbSearchResultResponse]
