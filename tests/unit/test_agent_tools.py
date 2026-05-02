@@ -7,6 +7,7 @@ from app.agent.tools import (
     get_artifacts,
     get_run_summary,
     parse_requirement,
+    retrieve_testing_context,
     run_test,
 )
 
@@ -15,6 +16,7 @@ def test_agent_tool_registry_exposes_expected_tools() -> None:
     assert {
         "normalize_requirement",
         "parse_requirement",
+        "retrieve_testing_context",
         "generate_test",
         "run_test",
         "create_report",
@@ -35,6 +37,23 @@ def test_parse_and_generate_tools_return_serializable_payloads() -> None:
     assert generate_result["test_points"][0]["id"] == "TP-001"
     assert generate_result["script_path"] == "generated/tests/test_login_generated.py"
     assert Path(generate_result["script_path"]).exists()
+
+
+def test_retrieval_tool_returns_context_for_generation() -> None:
+    retrieval_result = retrieve_testing_context("data/inputs/sample_prd_login.md", max_results=5)
+
+    assert retrieval_result["result_count"] >= 3
+    assert "data/contracts/demo_app_selectors.json" in [
+        item["source_path"] for item in retrieval_result["results"]
+    ]
+
+    generate_result = generate_test(
+        "data/inputs/sample_prd_login.md",
+        testing_context=retrieval_result,
+    )
+
+    assert "data/contracts/demo_app_selectors.json" in generate_result["context_source_paths"]
+    assert generate_result["script_path"] == "generated/tests/test_login_generated.py"
 
 
 def test_run_summary_and_artifact_tools_read_saved_run_outputs() -> None:

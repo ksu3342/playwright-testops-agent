@@ -22,9 +22,10 @@ def test_agent_orchestrator_records_blocked_search_trace() -> None:
 
     assert trace["status"] == "completed"
     assert trace["final_status"] == "blocked"
-    assert tool_names == ["parse_requirement", "generate_test", "run_test"]
+    assert tool_names == ["parse_requirement", "retrieve_testing_context", "generate_test", "run_test"]
     assert trace["final_output"]["run_id"] == result["run_id"]
     assert trace["final_output"]["artifact_paths"]["summary"].endswith("summary.json")
+    assert "data/contracts/demo_app_selectors.json" in trace["final_output"]["retrieved_context"]["source_paths"]
 
 
 def test_agent_orchestrator_records_passed_login_trace() -> None:
@@ -39,7 +40,7 @@ def test_agent_orchestrator_records_passed_login_trace() -> None:
 
     assert trace["status"] == "completed"
     assert trace["final_status"] == "passed"
-    assert tool_names == ["parse_requirement", "generate_test", "run_test"]
+    assert tool_names == ["parse_requirement", "retrieve_testing_context", "generate_test", "run_test"]
     assert all(call["status"] == "succeeded" for call in trace["tool_calls"])
 
 
@@ -47,8 +48,19 @@ def test_agent_orchestrator_invokes_report_tool_for_failed_run(monkeypatch) -> N
     def fake_parse_requirement(input_path: str) -> dict[str, object]:
         return {"resolved_input_path": input_path, "document": {"feature_name": "Fake"}}
 
-    def fake_generate_test(input_path: str) -> dict[str, object]:
-        return {"script_path": "generated/tests/fake_failed_test.py", "test_point_count": 1}
+    def fake_retrieve_testing_context(input_path: str, max_results: int = 5) -> dict[str, object]:
+        return {
+            "result_count": 1,
+            "results": [{"source_path": "data/contracts/demo_app_selectors.json"}],
+        }
+
+    def fake_generate_test(input_path: str, testing_context=None) -> dict[str, object]:
+        assert testing_context["result_count"] == 1
+        return {
+            "script_path": "generated/tests/fake_failed_test.py",
+            "test_point_count": 1,
+            "context_source_paths": ["data/contracts/demo_app_selectors.json"],
+        }
 
     def fake_run_test(input_path: str) -> dict[str, object]:
         return {
@@ -68,6 +80,7 @@ def test_agent_orchestrator_invokes_report_tool_for_failed_run(monkeypatch) -> N
         }
 
     monkeypatch.setattr(graph.tools, "parse_requirement", fake_parse_requirement)
+    monkeypatch.setattr(graph.tools, "retrieve_testing_context", fake_retrieve_testing_context)
     monkeypatch.setattr(graph.tools, "generate_test", fake_generate_test)
     monkeypatch.setattr(graph.tools, "run_test", fake_run_test)
     monkeypatch.setattr(graph.tools, "create_report", fake_create_report)
@@ -80,5 +93,5 @@ def test_agent_orchestrator_invokes_report_tool_for_failed_run(monkeypatch) -> N
     trace = _load_trace(result["trace_path"])
     tool_names = [call["tool_name"] for call in trace["tool_calls"]]
 
-    assert tool_names == ["parse_requirement", "generate_test", "run_test", "create_report"]
+    assert tool_names == ["parse_requirement", "retrieve_testing_context", "generate_test", "run_test", "create_report"]
     assert trace["final_output"]["report_path"] == "generated/reports/bug_report_fake_failed_run.md"

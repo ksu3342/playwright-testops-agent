@@ -123,6 +123,7 @@ class AgentRunResponse(BaseModel):
     artifact_paths: dict[str, str] = Field(default_factory=dict)
     report_path: Optional[str] = None
     trace_path: str
+    retrieved_context: Optional[dict[str, Any]] = None
     error: Optional[str] = None
 
 

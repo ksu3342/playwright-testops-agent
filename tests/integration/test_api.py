@@ -278,6 +278,7 @@ def test_agent_run_endpoint_executes_login_flow_and_returns_trace_path() -> None
     assert payload["run_dir"].startswith("data/runs/")
     assert payload["artifact_paths"]["summary"].endswith("summary.json")
     assert payload["trace_path"].startswith("data/agent_runs/")
+    assert payload["retrieved_context"]["result_count"] >= 1
     assert Path(payload["trace_path"]).exists()
 
 
@@ -307,7 +308,12 @@ def test_agent_run_trace_endpoint_returns_tool_calls() -> None:
     assert trace["final_status"] == "passed"
 
     tool_calls = trace["tool_calls"]
-    assert [call["tool_name"] for call in tool_calls] == ["parse_requirement", "generate_test", "run_test"]
+    assert [call["tool_name"] for call in tool_calls] == [
+        "parse_requirement",
+        "retrieve_testing_context",
+        "generate_test",
+        "run_test",
+    ]
     assert all(call["status"] == "succeeded" for call in tool_calls)
     assert trace["final_output"]["artifact_paths"]["summary"].endswith("summary.json")
 

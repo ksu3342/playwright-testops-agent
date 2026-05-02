@@ -12,6 +12,7 @@ from app.core.normalizer import normalize_requirement_file
 from app.core.parser import parse_prd
 from app.core.reporter import create_bug_report_from_run
 from app.core.runner import run_test_script
+from app.rag.retriever import retrieve_testing_context as retrieve_local_testing_context
 
 
 def _relative_to_repo(path: Path) -> str:
@@ -82,16 +83,73 @@ def parse_requirement(input_path: str) -> dict[str, Any]:
     }
 
 
-def generate_test(input_path: str) -> dict[str, Any]:
+def retrieve_testing_context(input_path: str, max_results: int = 5) -> dict[str, Any]:
+    return _json_safe(
+        retrieve_local_testing_context(
+            input_path=input_path,
+            max_results=max_results,
+        )
+    )
+
+
+def _source_path_from_context(testing_context: Optional[dict[str, Any]], source_type: str) -> Optional[Path]:
+    if not testing_context:
+        return None
+
+    results = testing_context.get("results")
+    if not isinstance(results, list):
+        return None
+
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        if result.get("source_type") != source_type:
+            continue
+        source_path = result.get("source_path")
+        if isinstance(source_path, str):
+            candidate = _resolve_repo_path(source_path)
+            if candidate.is_file():
+                return candidate
+    return None
+
+
+def _context_source_paths(testing_context: Optional[dict[str, Any]]) -> list[str]:
+    if not testing_context:
+        return []
+
+    results = testing_context.get("results")
+    if not isinstance(results, list):
+        return []
+
+    source_paths: list[str] = []
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        source_path = result.get("source_path")
+        if isinstance(source_path, str):
+            source_paths.append(source_path)
+    return source_paths
+
+
+def generate_test(input_path: str, testing_context: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     document = parse_prd(input_path)
     test_points = extract_test_points(document)
-    script_path = generate_test_script(document, test_points, input_path=input_path)
+    selector_contract_path = _source_path_from_context(testing_context, "selector_contract")
+    test_data_contract_path = _source_path_from_context(testing_context, "test_data_contract")
+    script_path = generate_test_script(
+        document,
+        test_points,
+        selector_contract_path=selector_contract_path,
+        test_data_contract_path=test_data_contract_path,
+        input_path=input_path,
+    )
     return {
         "resolved_input_path": _relative_to_repo(_resolve_repo_path(input_path)),
         "document": _json_safe(document),
         "test_points": _json_safe(test_points),
         "test_point_count": len(test_points),
         "script_path": script_path.as_posix(),
+        "context_source_paths": _context_source_paths(testing_context),
     }
 
 
@@ -139,6 +197,7 @@ def get_artifacts(run_reference: str) -> dict[str, Any]:
 TOOL_REGISTRY = {
     "normalize_requirement": normalize_requirement,
     "parse_requirement": parse_requirement,
+    "retrieve_testing_context": retrieve_testing_context,
     "generate_test": generate_test,
     "run_test": run_test,
     "create_report": create_report,

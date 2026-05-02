@@ -8,6 +8,7 @@ from app.agent.tracer import AgentRunTracer
 
 def _build_final_output(
     input_path: str,
+    retrieval_result: Optional[dict[str, Any]],
     generate_result: dict[str, Any],
     run_result: dict[str, Any],
     report_result: Optional[dict[str, Any]],
@@ -28,6 +29,26 @@ def _build_final_output(
         "artifact_paths": run_result.get("artifact_paths", {}),
         "report_path": report_path,
         "trace_path": trace_path,
+        "retrieved_context": _retrieved_context_summary(retrieval_result),
+    }
+
+
+def _retrieved_context_summary(retrieval_result: Optional[dict[str, Any]]) -> dict[str, Any]:
+    if not retrieval_result:
+        return {"result_count": 0, "source_paths": []}
+
+    results = retrieval_result.get("results")
+    if not isinstance(results, list):
+        return {"result_count": 0, "source_paths": []}
+
+    source_paths = [
+        result.get("source_path")
+        for result in results
+        if isinstance(result, dict) and isinstance(result.get("source_path"), str)
+    ]
+    return {
+        "result_count": int(retrieval_result.get("result_count", len(source_paths))),
+        "source_paths": source_paths,
     }
 
 
@@ -42,6 +63,7 @@ def run_agent_task(input_path: str, agent_run_id: Optional[str] = None) -> dict[
         if not isinstance(final_output, dict):
             final_output = _build_final_output(
                 input_path,
+                graph_state.get("retrieval_result"),
                 graph_state["generate_result"],
                 graph_state["run_result"],
                 graph_state.get("report_result"),

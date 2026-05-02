@@ -14,8 +14,19 @@ def test_langgraph_agent_graph_runs_passed_path_with_expected_nodes(monkeypatch)
     def fake_parse_requirement(input_path: str) -> dict[str, object]:
         return {"resolved_input_path": input_path, "document": {"feature_name": "Fake"}}
 
-    def fake_generate_test(input_path: str) -> dict[str, object]:
-        return {"script_path": "generated/tests/fake_passed_test.py", "test_point_count": 1}
+    def fake_retrieve_testing_context(input_path: str, max_results: int = 5) -> dict[str, object]:
+        return {
+            "result_count": 1,
+            "results": [{"source_path": "data/contracts/demo_app_selectors.json"}],
+        }
+
+    def fake_generate_test(input_path: str, testing_context=None) -> dict[str, object]:
+        assert testing_context["result_count"] == 1
+        return {
+            "script_path": "generated/tests/fake_passed_test.py",
+            "test_point_count": 1,
+            "context_source_paths": ["data/contracts/demo_app_selectors.json"],
+        }
 
     def fake_run_test(input_path: str) -> dict[str, object]:
         return {
@@ -26,6 +37,7 @@ def test_langgraph_agent_graph_runs_passed_path_with_expected_nodes(monkeypatch)
         }
 
     monkeypatch.setattr(graph.tools, "parse_requirement", fake_parse_requirement)
+    monkeypatch.setattr(graph.tools, "retrieve_testing_context", fake_retrieve_testing_context)
     monkeypatch.setattr(graph.tools, "generate_test", fake_generate_test)
     monkeypatch.setattr(graph.tools, "run_test", fake_run_test)
 
@@ -40,15 +52,32 @@ def test_langgraph_agent_graph_runs_passed_path_with_expected_nodes(monkeypatch)
     assert state["final_output"]["trace_path"] == "data/agent_runs/unit_graph_passed_path/trace.json"
 
     trace = _load_trace(state["final_output"]["trace_path"])
-    assert [call["tool_name"] for call in trace["tool_calls"]] == ["parse_requirement", "generate_test", "run_test"]
+    assert [call["tool_name"] for call in trace["tool_calls"]] == [
+        "parse_requirement",
+        "retrieve_testing_context",
+        "generate_test",
+        "run_test",
+    ]
+    assert state["final_output"]["retrieved_context"]["source_paths"] == ["data/contracts/demo_app_selectors.json"]
 
 
 def test_langgraph_agent_graph_routes_failed_path_to_report(monkeypatch) -> None:
     def fake_parse_requirement(input_path: str) -> dict[str, object]:
         return {"resolved_input_path": input_path, "document": {"feature_name": "Fake"}}
 
-    def fake_generate_test(input_path: str) -> dict[str, object]:
-        return {"script_path": "generated/tests/fake_failed_test.py", "test_point_count": 1}
+    def fake_retrieve_testing_context(input_path: str, max_results: int = 5) -> dict[str, object]:
+        return {
+            "result_count": 1,
+            "results": [{"source_path": "data/contracts/demo_app_selectors.json"}],
+        }
+
+    def fake_generate_test(input_path: str, testing_context=None) -> dict[str, object]:
+        assert testing_context["result_count"] == 1
+        return {
+            "script_path": "generated/tests/fake_failed_test.py",
+            "test_point_count": 1,
+            "context_source_paths": ["data/contracts/demo_app_selectors.json"],
+        }
 
     def fake_run_test(input_path: str) -> dict[str, object]:
         return {
@@ -68,6 +97,7 @@ def test_langgraph_agent_graph_routes_failed_path_to_report(monkeypatch) -> None
         }
 
     monkeypatch.setattr(graph.tools, "parse_requirement", fake_parse_requirement)
+    monkeypatch.setattr(graph.tools, "retrieve_testing_context", fake_retrieve_testing_context)
     monkeypatch.setattr(graph.tools, "generate_test", fake_generate_test)
     monkeypatch.setattr(graph.tools, "run_test", fake_run_test)
     monkeypatch.setattr(graph.tools, "create_report", fake_create_report)
@@ -84,6 +114,7 @@ def test_langgraph_agent_graph_routes_failed_path_to_report(monkeypatch) -> None
     trace = _load_trace(state["final_output"]["trace_path"])
     assert [call["tool_name"] for call in trace["tool_calls"]] == [
         "parse_requirement",
+        "retrieve_testing_context",
         "generate_test",
         "run_test",
         "create_report",
