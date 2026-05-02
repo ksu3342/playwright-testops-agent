@@ -25,6 +25,7 @@ This bounded TestOps workflow is designed for portfolio demonstration.
 5. **Agent/RAG platform-facing layer** (`app/agent/`, `app/rag/`)
    - Wraps parse/retrieve/plan/generate/run/report as traceable agent steps
    - Stores agent traces under `data/agent_runs/`
+   - Persists the reviewed test plan as `test_plan.json` and generates requirement-backed scripts from that approved plan
    - Accepts PRD file paths, API/CLI-submitted task text, or existing Python test scripts
    - Records deterministic information-need analysis before retrieval
    - Uses `data/kb/index.json` and `data/kb/uploaded/` for local file-backed KB ingest/search
@@ -55,6 +56,9 @@ data/runs/<run_id>/
 ```
 data/agent_runs/<agent_run_id>/trace.json
   # agent tool calls, approvals, final output, and resume state
+
+data/agent_runs/<agent_run_id>/test_plan.json
+  # reviewable plan consumed by generate_test_from_plan after approval
 
 data/agent_runs/<agent_run_id>/decision_trace.md
   # optional human-readable trace rendered by `python -m app.main agent-trace --format markdown`

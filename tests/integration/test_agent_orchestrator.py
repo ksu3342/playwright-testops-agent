@@ -11,7 +11,7 @@ SUCCESS_TOOL_SEQUENCE = [
     "retrieve_testing_context",
     "draft_test_plan",
     "validate_test_plan",
-    "generate_test",
+    "generate_test_from_plan",
     "run_test",
     "collect_run_evidence",
 ]
@@ -44,6 +44,8 @@ def test_agent_orchestrator_records_blocked_search_trace() -> None:
     assert tool_names == SUCCESS_TOOL_SEQUENCE
     assert trace["final_output"]["run_id"] == result["run_id"]
     assert trace["final_output"]["artifact_paths"]["summary"].endswith("summary.json")
+    assert trace["final_output"]["test_plan_path"] == result["test_plan_path"]
+    assert Path(result["test_plan_path"]).exists()
     assert "data/contracts/demo_app_selectors.json" in trace["final_output"]["retrieved_context"]["source_paths"]
     assert trace["final_output"]["plan_validation"]["status"] == "passed"
     assert trace["final_output"]["run_summary"]["run_id"] == result["run_id"]
@@ -111,10 +113,11 @@ def test_agent_orchestrator_invokes_report_tool_for_failed_run(monkeypatch) -> N
     def fake_validate_test_plan(test_plan: dict[str, object]) -> dict[str, object]:
         return {"status": "passed", "missing_inputs": [], "can_generate": True, "reason": "test_plan_ready"}
 
-    def fake_generate_test(input_path: str, testing_context=None) -> dict[str, object]:
+    def fake_generate_test_from_plan(input_path: str, test_plan: dict[str, object], testing_context=None) -> dict[str, object]:
         assert testing_context["result_count"] == 1
         return {
             "script_path": "generated/tests/fake_failed_test.py",
+            "generation_mode": "test_plan",
             "test_point_count": 1,
             "context_source_paths": ["data/contracts/demo_app_selectors.json"],
         }
@@ -147,7 +150,7 @@ def test_agent_orchestrator_invokes_report_tool_for_failed_run(monkeypatch) -> N
     monkeypatch.setattr(graph.tools, "retrieve_testing_context", fake_retrieve_testing_context)
     monkeypatch.setattr(graph.tools, "draft_test_plan", fake_draft_test_plan)
     monkeypatch.setattr(graph.tools, "validate_test_plan", fake_validate_test_plan)
-    monkeypatch.setattr(graph.tools, "generate_test", fake_generate_test)
+    monkeypatch.setattr(graph.tools, "generate_test_from_plan", fake_generate_test_from_plan)
     monkeypatch.setattr(graph.tools, "run_test", fake_run_test)
     monkeypatch.setattr(graph.tools, "create_report", fake_create_report)
     monkeypatch.setattr(graph.tools, "collect_run_evidence", fake_collect_run_evidence)
@@ -169,7 +172,7 @@ def test_agent_orchestrator_invokes_report_tool_for_failed_run(monkeypatch) -> N
         "retrieve_testing_context",
         "draft_test_plan",
         "validate_test_plan",
-        "generate_test",
+        "generate_test_from_plan",
         "run_test",
         "collect_run_evidence",
         "create_report",
@@ -205,6 +208,8 @@ def test_agent_orchestrator_manual_mode_pauses_and_resumes_login_flow() -> None:
     assert created["final_status"] == "waiting_for_test_plan_approval"
     assert created["pending_approval"]["gate"] == "test_plan"
     assert created["test_plan"]["feature_name"] == "User Login"
+    assert created["test_plan_path"].endswith("/test_plan.json")
+    assert Path(created["test_plan_path"]).exists()
 
     after_plan = continue_agent_run(
         created["agent_run_id"],
@@ -277,8 +282,8 @@ def test_agent_orchestrator_manual_failed_run_approves_report_draft(monkeypatch)
     def fake_validate_test_plan(test_plan: dict[str, object]) -> dict[str, object]:
         return {"status": "passed", "missing_inputs": [], "can_generate": True, "reason": "test_plan_ready"}
 
-    def fake_generate_test(input_path: str, testing_context=None) -> dict[str, object]:
-        return {"script_path": "generated/tests/fake_failed_test.py", "test_point_count": 1}
+    def fake_generate_test_from_plan(input_path: str, test_plan: dict[str, object], testing_context=None) -> dict[str, object]:
+        return {"script_path": "generated/tests/fake_failed_test.py", "generation_mode": "test_plan", "test_point_count": 1}
 
     def fake_run_test(input_path: str) -> dict[str, object]:
         return {
@@ -308,7 +313,7 @@ def test_agent_orchestrator_manual_failed_run_approves_report_draft(monkeypatch)
     monkeypatch.setattr(graph.tools, "retrieve_testing_context", fake_retrieve_testing_context)
     monkeypatch.setattr(graph.tools, "draft_test_plan", fake_draft_test_plan)
     monkeypatch.setattr(graph.tools, "validate_test_plan", fake_validate_test_plan)
-    monkeypatch.setattr(graph.tools, "generate_test", fake_generate_test)
+    monkeypatch.setattr(graph.tools, "generate_test_from_plan", fake_generate_test_from_plan)
     monkeypatch.setattr(graph.tools, "run_test", fake_run_test)
     monkeypatch.setattr(graph.tools, "collect_run_evidence", fake_collect_run_evidence)
     monkeypatch.setattr(graph.tools, "create_report", fake_create_report)

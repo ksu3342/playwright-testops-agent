@@ -29,7 +29,18 @@ def _fake_test_plan() -> dict[str, object]:
         "planner_provider": None,
         "retrieved_source_paths": ["data/contracts/demo_app_selectors.json"],
         "retrieved_sources": [{"source_type": "selector_contract", "source_path": "data/contracts/demo_app_selectors.json"}],
-        "test_cases": [{"id": "TP-001", "title": "Fake case"}],
+        "test_cases": [
+            {
+                "id": "TP-001",
+                "title": "Fake case",
+                "type": "happy_path",
+                "preconditions": [],
+                "steps": ["Open /fake"],
+                "expected_result": "Fake page is usable.",
+                "source_sections": ["Acceptance Criteria"],
+                "rationale": "Covers the main path.",
+            }
+        ],
         "risks": [],
         "missing_inputs": [],
     }
@@ -82,10 +93,12 @@ def _patch_passed_plan_tools(monkeypatch) -> None:
 def test_langgraph_agent_graph_runs_passed_path_with_expected_nodes(monkeypatch) -> None:
     _patch_passed_plan_tools(monkeypatch)
 
-    def fake_generate_test(input_path: str, testing_context=None) -> dict[str, object]:
+    def fake_generate_test_from_plan(input_path: str, test_plan: dict[str, object], testing_context=None) -> dict[str, object]:
         assert testing_context["result_count"] == 1
+        assert test_plan["test_cases"][0]["id"] == "TP-001"
         return {
             "script_path": "generated/tests/fake_passed_test.py",
+            "generation_mode": "test_plan",
             "test_point_count": 1,
             "context_source_paths": ["data/contracts/demo_app_selectors.json"],
         }
@@ -98,7 +111,7 @@ def test_langgraph_agent_graph_runs_passed_path_with_expected_nodes(monkeypatch)
             "artifact_paths": {"summary": "data/runs/fake_passed_run/summary.json"},
         }
 
-    monkeypatch.setattr(graph.tools, "generate_test", fake_generate_test)
+    monkeypatch.setattr(graph.tools, "generate_test_from_plan", fake_generate_test_from_plan)
     monkeypatch.setattr(graph.tools, "run_test", fake_run_test)
 
     tracer = AgentRunTracer.create(
@@ -110,6 +123,8 @@ def test_langgraph_agent_graph_runs_passed_path_with_expected_nodes(monkeypatch)
     assert state["final_status"] == "passed"
     assert state["final_output"]["run_id"] == "fake_passed_run"
     assert state["final_output"]["trace_path"] == "data/agent_runs/unit_graph_passed_path/trace.json"
+    assert state["final_output"]["test_plan_path"] == "data/agent_runs/unit_graph_passed_path/test_plan.json"
+    assert Path(state["final_output"]["test_plan_path"]).exists()
     assert state["final_output"]["test_plan"]["feature_name"] == "Fake"
     assert state["final_output"]["plan_validation"]["status"] == "passed"
     assert state["final_output"]["planning_strategy"] == "deterministic_scaffold"
@@ -127,7 +142,7 @@ def test_langgraph_agent_graph_runs_passed_path_with_expected_nodes(monkeypatch)
         "retrieve_testing_context",
         "draft_test_plan",
         "validate_test_plan",
-        "generate_test",
+        "generate_test_from_plan",
         "run_test",
         "collect_run_evidence",
     ]
@@ -137,8 +152,8 @@ def test_langgraph_agent_graph_runs_passed_path_with_expected_nodes(monkeypatch)
 def test_langgraph_agent_graph_routes_failed_path_to_report(monkeypatch) -> None:
     _patch_passed_plan_tools(monkeypatch)
 
-    def fake_generate_test(input_path: str, testing_context=None) -> dict[str, object]:
-        return {"script_path": "generated/tests/fake_failed_test.py", "test_point_count": 1}
+    def fake_generate_test_from_plan(input_path: str, test_plan: dict[str, object], testing_context=None) -> dict[str, object]:
+        return {"script_path": "generated/tests/fake_failed_test.py", "generation_mode": "test_plan", "test_point_count": 1}
 
     def fake_run_test(input_path: str) -> dict[str, object]:
         return {
@@ -157,7 +172,7 @@ def test_langgraph_agent_graph_routes_failed_path_to_report(monkeypatch) -> None
             "report_path": "generated/reports/bug_report_fake_failed_run.md",
         }
 
-    monkeypatch.setattr(graph.tools, "generate_test", fake_generate_test)
+    monkeypatch.setattr(graph.tools, "generate_test_from_plan", fake_generate_test_from_plan)
     monkeypatch.setattr(graph.tools, "run_test", fake_run_test)
     monkeypatch.setattr(graph.tools, "create_report", fake_create_report)
 
@@ -180,7 +195,7 @@ def test_langgraph_agent_graph_routes_failed_path_to_report(monkeypatch) -> None
         "retrieve_testing_context",
         "draft_test_plan",
         "validate_test_plan",
-        "generate_test",
+        "generate_test_from_plan",
         "run_test",
         "collect_run_evidence",
         "create_report",
@@ -190,10 +205,10 @@ def test_langgraph_agent_graph_routes_failed_path_to_report(monkeypatch) -> None
 def test_langgraph_manual_mode_pauses_before_generation(monkeypatch) -> None:
     _patch_passed_plan_tools(monkeypatch)
 
-    def fail_generate_test(input_path: str, testing_context=None) -> dict[str, object]:
-        raise AssertionError("generate_test should not run before plan approval")
+    def fail_generate_test_from_plan(input_path: str, test_plan: dict[str, object], testing_context=None) -> dict[str, object]:
+        raise AssertionError("generate_test_from_plan should not run before plan approval")
 
-    monkeypatch.setattr(graph.tools, "generate_test", fail_generate_test)
+    monkeypatch.setattr(graph.tools, "generate_test_from_plan", fail_generate_test_from_plan)
 
     tracer = AgentRunTracer.create(
         {"input_path": "data/inputs/fake_manual_prd.md"},
@@ -228,11 +243,11 @@ def test_langgraph_blocks_invalid_plan_before_generation(monkeypatch) -> None:
             "reason": "test_plan_missing_required_inputs",
         }
 
-    def fail_generate_test(input_path: str, testing_context=None) -> dict[str, object]:
-        raise AssertionError("generate_test should not run after blocked plan validation")
+    def fail_generate_test_from_plan(input_path: str, test_plan: dict[str, object], testing_context=None) -> dict[str, object]:
+        raise AssertionError("generate_test_from_plan should not run after blocked plan validation")
 
     monkeypatch.setattr(graph.tools, "validate_test_plan", fake_validate_test_plan)
-    monkeypatch.setattr(graph.tools, "generate_test", fail_generate_test)
+    monkeypatch.setattr(graph.tools, "generate_test_from_plan", fail_generate_test_from_plan)
 
     tracer = AgentRunTracer.create(
         {"input_path": "data/inputs/fake_blocked_prd.md"},
@@ -329,8 +344,8 @@ def test_langgraph_existing_script_manual_mode_pauses_before_execution(monkeypat
 def test_langgraph_manual_mode_pauses_for_report_review_after_failed_run(monkeypatch) -> None:
     _patch_passed_plan_tools(monkeypatch)
 
-    def fake_generate_test(input_path: str, testing_context=None) -> dict[str, object]:
-        return {"script_path": "generated/tests/fake_failed_test.py", "test_point_count": 1}
+    def fake_generate_test_from_plan(input_path: str, test_plan: dict[str, object], testing_context=None) -> dict[str, object]:
+        return {"script_path": "generated/tests/fake_failed_test.py", "generation_mode": "test_plan", "test_point_count": 1}
 
     def fake_run_test(input_path: str) -> dict[str, object]:
         return {
@@ -349,7 +364,7 @@ def test_langgraph_manual_mode_pauses_for_report_review_after_failed_run(monkeyp
             "report_path": "generated/reports/bug_report_fake_failed_run.md",
         }
 
-    monkeypatch.setattr(graph.tools, "generate_test", fake_generate_test)
+    monkeypatch.setattr(graph.tools, "generate_test_from_plan", fake_generate_test_from_plan)
     monkeypatch.setattr(graph.tools, "run_test", fake_run_test)
     monkeypatch.setattr(graph.tools, "create_report", fake_create_report)
 

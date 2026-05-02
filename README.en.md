@@ -85,6 +85,7 @@ The report path under `generated/reports/` is also a runtime output, not a fixed
 - [app/rag/langchain_retriever.py](./app/rag/langchain_retriever.py) wraps the local KB documents with LangChain Core `Document` / `BaseRetriever` interfaces while preserving deterministic local scoring.
 - [app/agent/tools.py](./app/agent/tools.py) exposes the controlled workflow functions as Python tools and provides a LangChain-compatible `StructuredTool` export for interface evidence.
 - [app/agent/trace_explainer.py](./app/agent/trace_explainer.py) renders `trace.json` as a concise decision trace for CLI demos and review.
+- Agent runs persist the reviewed plan as `data/agent_runs/<agent_run_id>/test_plan.json`; requirement-backed generation uses that approved plan through `generate_test_from_plan`.
 - Optional `planning_backend=llm_assisted` asks a configured planner provider for reviewable test-plan JSON only; generated scripts and execution still go through controlled deterministic tools.
 - [tests/unit/test_generator.py](./tests/unit/test_generator.py), [tests/unit/test_runner.py](./tests/unit/test_runner.py), and [tests/demo/test_demo_app.py](./tests/demo/test_demo_app.py) verify generator, runner, and demo behavior.
 - [tests/integration/test_api.py](./tests/integration/test_api.py) and [tests/integration/test_pipeline.py](./tests/integration/test_pipeline.py) cover the API-facing and pipeline-facing integration paths.
@@ -94,7 +95,7 @@ The report path under `generated/reports/` is also a runtime output, not a fixed
 - The current implementation remains CLI-first, and the FastAPI layer is only a light wrapper over the same Python core functions.
 - `normalize` is intentionally optional and remains outside the deterministic execution chain.
 - Optional LLM-assisted planning is opt-in through `planning_backend=llm_assisted`; the default remains deterministic.
-- The deterministic core flow stays `parse -> extract -> generate -> run -> report`, which keeps behavior easier to inspect and explain.
+- The deterministic core flow stays inspectable; requirement-backed Agent runs now use `retrieve -> test_plan.json -> approval -> generate_test_from_plan -> run -> report/trace`.
 - Artifacts remain file-backed so run history and reports can be checked directly from the repository workspace.
 - KB retrieval is file-backed by default: `data/kb/index.json` stores the index and `data/kb/uploaded/` stores API-ingested content. `backend=langchain_local` runs the same local KB through LangChain Core document/retriever interfaces, not embeddings.
 - Agent checkpointing is local `trace.json + resume_state`, not LangGraph-native durable execution.
@@ -169,6 +170,8 @@ python -m app.main agent-trace --agent-run-id <agent_run_id> --format summary
 python -m app.main agent-run --script tests/assets/playwright_login_failure_case.py --approval-mode manual --module "playwright failure"
 python -m app.main agent-trace --agent-run-id <agent_run_id> --format markdown
 ```
+
+For the recommended demo, point to `data/agent_runs/<agent_run_id>/test_plan.json` first, then show the summary trace linking the approved plan, generated script, run summary, and defect draft when a failed run creates one.
 
 The list endpoint reads local `data/agent_runs/*/trace.json` files and supports `status`, `final_status`, `module`, and `limit` filters.
 

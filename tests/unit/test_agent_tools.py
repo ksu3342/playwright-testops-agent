@@ -11,6 +11,7 @@ from app.agent.tools import (
     create_report,
     draft_test_plan,
     generate_test,
+    generate_test_from_plan,
     get_langchain_tools,
     get_artifacts,
     get_run_summary,
@@ -41,6 +42,7 @@ def test_agent_tool_registry_exposes_expected_tools() -> None:
         "validate_test_plan",
         "prepare_existing_script_execution",
         "generate_test",
+        "generate_test_from_plan",
         "run_test",
         "create_report",
         "get_run_summary",
@@ -115,6 +117,37 @@ def test_draft_and_validate_test_plan_tools_return_reviewable_payload() -> None:
         "can_generate": True,
         "reason": "test_plan_ready",
     }
+
+
+def test_generate_test_from_plan_uses_reviewed_cases_and_context() -> None:
+    information_needs = analyze_information_needs("data/inputs/sample_prd_login.md")
+    retrieval_result = retrieve_testing_context(
+        "data/inputs/sample_prd_login.md",
+        max_results=5,
+        source_types=information_needs["required_context_types"],
+        query=information_needs["retrieval_query"],
+    )
+    test_plan = draft_test_plan(
+        "data/inputs/sample_prd_login.md",
+        testing_context=retrieval_result,
+        information_needs=information_needs,
+    )
+    test_plan["test_cases"][0]["id"] = "TP-PLAN-001"
+    test_plan["test_cases"][0]["title"] = "Reviewed login happy path"
+
+    generate_result = generate_test_from_plan(
+        "data/inputs/sample_prd_login.md",
+        test_plan,
+        testing_context=retrieval_result,
+    )
+
+    assert generate_result["generation_mode"] == "test_plan"
+    assert generate_result["test_point_count"] == 1
+    assert generate_result["test_plan_case_count"] == 1
+    assert generate_result["test_points"][0]["id"] == "TP-PLAN-001"
+    assert generate_result["test_points"][0]["title"] == "Reviewed login happy path"
+    assert "data/contracts/demo_app_selectors.json" in generate_result["context_source_paths"]
+    assert "data/contracts/demo_app_test_data.json" in generate_result["context_source_paths"]
 
 
 def test_llm_assisted_test_plan_uses_reviewable_json_without_model_owned_sources() -> None:
@@ -213,7 +246,35 @@ def test_validate_test_plan_blocks_missing_required_review_inputs() -> None:
         "page_url",
         "test_cases",
         "selector_contract",
+        "retrieved_source_paths",
     ]
+
+
+def test_validate_test_plan_blocks_incomplete_case_contract() -> None:
+    validation = validate_test_plan(
+        {
+            "feature_name": "User Login",
+            "page_url": "/login",
+            "retrieved_source_paths": ["data/contracts/demo_app_selectors.json"],
+            "retrieved_sources": [
+                {"source_type": "selector_contract", "source_path": "data/contracts/demo_app_selectors.json"}
+            ],
+            "test_cases": [
+                {
+                    "id": "TP-001",
+                    "title": "Missing expected result",
+                    "type": "happy_path",
+                    "steps": ["Open /login"],
+                    "source_sections": ["Acceptance Criteria"],
+                    "rationale": "Covers login.",
+                }
+            ],
+        }
+    )
+
+    assert validation["status"] == "blocked"
+    assert validation["can_generate"] is False
+    assert "test_cases[0].expected_result" in validation["missing_inputs"]
 
 
 def test_prepare_existing_script_execution_returns_reviewable_payload() -> None:

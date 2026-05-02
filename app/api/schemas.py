@@ -169,6 +169,7 @@ class AgentRunResponse(BaseModel):
     retrieval_backend: Optional[str] = None
     retrieval_implementation: Optional[str] = None
     test_plan: Optional[dict[str, Any]] = None
+    test_plan_path: Optional[str] = None
     planning_strategy: Optional[str] = None
     planning_backend: Optional[str] = None
     planning_implementation: Optional[str] = None

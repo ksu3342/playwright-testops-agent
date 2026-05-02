@@ -16,6 +16,7 @@ from app.core.runner import run_test_script
 from app.llm.base import BaseLLMProvider, LLMProviderError, LLMResponse
 from app.llm.live_provider import LiveLLMProvider
 from app.rag.retriever import retrieve_testing_context as retrieve_local_testing_context
+from app.schemas.testpoint_schema import TestPoint
 
 
 PLANNING_IMPLEMENTATIONS = {
@@ -435,6 +436,39 @@ def _has_source_type(test_plan: dict[str, Any], source_type: str) -> bool:
     return any(isinstance(source, dict) and source.get("source_type") == source_type for source in retrieved_sources)
 
 
+def _non_empty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _non_empty_string_list(value: Any) -> bool:
+    return isinstance(value, list) and bool(value) and all(_non_empty_string(item) for item in value)
+
+
+def _plan_case_missing_inputs(test_case: Any, index: int) -> list[str]:
+    prefix = f"test_cases[{index}]"
+    if not isinstance(test_case, dict):
+        return [prefix]
+
+    missing: list[str] = []
+    for field in ("id", "title", "type", "expected_result", "rationale"):
+        if not _non_empty_string(test_case.get(field)):
+            missing.append(f"{prefix}.{field}")
+    for field in ("steps", "source_sections"):
+        if not _non_empty_string_list(test_case.get(field)):
+            missing.append(f"{prefix}.{field}")
+    return missing
+
+
+def _retrieved_source_paths_from_plan(test_plan: dict[str, Any]) -> set[str]:
+    retrieved_sources = test_plan.get("retrieved_sources")
+    paths: set[str] = set()
+    if isinstance(retrieved_sources, list):
+        for source in retrieved_sources:
+            if isinstance(source, dict) and isinstance(source.get("source_path"), str):
+                paths.add(source["source_path"])
+    return paths
+
+
 def draft_test_plan(
     input_path: str,
     testing_context: Optional[dict[str, Any]] = None,
@@ -517,9 +551,23 @@ def validate_test_plan(test_plan: dict[str, Any]) -> dict[str, Any]:
     test_cases = test_plan.get("test_cases")
     if not isinstance(test_cases, list) or not test_cases:
         missing_inputs.append("test_cases")
+    elif isinstance(test_cases, list):
+        for index, test_case in enumerate(test_cases):
+            missing_inputs.extend(_plan_case_missing_inputs(test_case, index))
 
     if not _has_source_type(test_plan, "selector_contract"):
         missing_inputs.append("selector_contract")
+
+    retrieved_source_paths = test_plan.get("retrieved_source_paths")
+    if not isinstance(retrieved_source_paths, list):
+        missing_inputs.append("retrieved_source_paths")
+    else:
+        retrieved_source_path_set = {path for path in retrieved_source_paths if isinstance(path, str)}
+        source_paths_from_sources = _retrieved_source_paths_from_plan(test_plan)
+        if not retrieved_source_path_set:
+            missing_inputs.append("retrieved_source_paths")
+        elif source_paths_from_sources and not source_paths_from_sources.issubset(retrieved_source_path_set):
+            missing_inputs.append("retrieved_sources_consistency")
 
     status = "blocked" if missing_inputs else "passed"
     return {
@@ -528,6 +576,36 @@ def validate_test_plan(test_plan: dict[str, Any]) -> dict[str, Any]:
         "can_generate": status == "passed",
         "reason": "test_plan_ready" if status == "passed" else "test_plan_missing_required_inputs",
     }
+
+
+def _test_points_from_plan(test_plan: dict[str, Any]) -> list[TestPoint]:
+    test_cases = test_plan.get("test_cases")
+    if not isinstance(test_cases, list):
+        raise ValueError("Approved test plan must contain a test_cases list.")
+
+    test_points: list[TestPoint] = []
+    for index, test_case in enumerate(test_cases):
+        missing_inputs = _plan_case_missing_inputs(test_case, index)
+        if missing_inputs:
+            missing = ", ".join(missing_inputs)
+            raise ValueError(f"Approved test plan case is incomplete: {missing}")
+        assert isinstance(test_case, dict)
+        preconditions = test_case.get("preconditions")
+        if not isinstance(preconditions, list):
+            preconditions = []
+        test_points.append(
+            TestPoint(
+                id=str(test_case["id"]),
+                title=str(test_case["title"]),
+                type=str(test_case["type"]),
+                preconditions=[str(item) for item in preconditions if item is not None],
+                steps=[str(item) for item in test_case["steps"]],
+                expected_result=str(test_case["expected_result"]),
+                source_sections=[str(item) for item in test_case["source_sections"]],
+                rationale=str(test_case["rationale"]),
+            )
+        )
+    return test_points
 
 
 def prepare_existing_script_execution(script_path: str) -> dict[str, Any]:
@@ -564,6 +642,43 @@ def generate_test(input_path: str, testing_context: Optional[dict[str, Any]] = N
         "document": _json_safe(document),
         "test_points": _json_safe(test_points),
         "test_point_count": len(test_points),
+        "script_path": script_path.as_posix(),
+        "context_source_paths": _context_source_paths(testing_context),
+    }
+
+
+def generate_test_from_plan(
+    input_path: str,
+    test_plan: dict[str, Any],
+    testing_context: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    plan_validation = validate_test_plan(test_plan)
+    if plan_validation["status"] != "passed":
+        missing_inputs = ", ".join(plan_validation["missing_inputs"])
+        raise ValueError(f"Approved test plan is not generation-ready: {missing_inputs}")
+
+    document = parse_prd(input_path)
+    test_points = _test_points_from_plan(test_plan)
+    selector_contract_path = _source_path_from_context(testing_context, "selector_contract")
+    test_data_contract_path = _source_path_from_context(testing_context, "test_data_contract")
+    if selector_contract_path is None:
+        raise ValueError("Approved test plan requires a retrieved selector_contract source.")
+    if document.page_url == "/login" and test_data_contract_path is None:
+        raise ValueError("Approved login test plan requires a retrieved test_data_contract source.")
+    script_path = generate_test_script(
+        document,
+        test_points,
+        selector_contract_path=selector_contract_path,
+        test_data_contract_path=test_data_contract_path,
+        input_path=input_path,
+    )
+    return {
+        "resolved_input_path": _relative_to_repo(_resolve_repo_path(input_path)),
+        "generation_mode": "test_plan",
+        "document": _json_safe(document),
+        "test_points": _json_safe(test_points),
+        "test_point_count": len(test_points),
+        "test_plan_case_count": len(test_points),
         "script_path": script_path.as_posix(),
         "context_source_paths": _context_source_paths(testing_context),
     }
@@ -627,6 +742,7 @@ TOOL_REGISTRY = {
     "validate_test_plan": validate_test_plan,
     "prepare_existing_script_execution": prepare_existing_script_execution,
     "generate_test": generate_test,
+    "generate_test_from_plan": generate_test_from_plan,
     "run_test": run_test,
     "create_report": create_report,
     "get_run_summary": get_run_summary,
@@ -644,6 +760,7 @@ TOOL_DESCRIPTIONS = {
     "validate_test_plan": "Validate that a test plan has enough reviewed inputs for generation.",
     "prepare_existing_script_execution": "Validate an existing test script and prepare it for controlled execution.",
     "generate_test": "Generate a Playwright pytest script through the controlled generator.",
+    "generate_test_from_plan": "Generate a Playwright pytest script from an approved test plan and retrieved context.",
     "run_test": "Run a generated or fixture pytest script and collect execution artifacts.",
     "create_report": "Create a defect report draft for a failed run.",
     "get_run_summary": "Read a saved run summary artifact.",

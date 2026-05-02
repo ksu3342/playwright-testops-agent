@@ -27,11 +27,17 @@ def _sample_trace() -> dict[str, object]:
             {"sequence": 3, "tool_name": "create_report", "status": "succeeded", "duration_seconds": 0.01},
         ],
         "approval_requests": [{"gate": "execution", "status": "approved", "reviewer": "pytest"}],
+        "artifact_paths": {
+            "trace": "data/agent_runs/unit_trace_explainer/trace.json",
+            "test_plan": "data/agent_runs/unit_trace_explainer/test_plan.json",
+        },
         "final_output": {
             "input_path": "tests/assets/runner_fail_case.py",
             "script_path": "tests/assets/runner_fail_case.py",
             "run_id": "fake_failed_run",
             "run_status": "failed",
+            "artifact_paths": {"summary": "data/runs/fake_failed_run/summary.json"},
+            "test_plan_path": "data/agent_runs/unit_trace_explainer/test_plan.json",
             "report_draft_path": "generated/reports/bug_report_fake_failed_run.md",
             "information_needs": {"required_context_types": ["selector_contract"]},
             "retrieved_context": {"source_paths": ["data/contracts/demo_app_selectors.json"]},
@@ -49,6 +55,8 @@ def test_trace_explainer_renders_summary_json_and_markdown() -> None:
 
     assert "Agent run: unit_trace_explainer" in summary
     assert "prepare_existing_script_execution" in summary
+    assert "Test plan: data/agent_runs/unit_trace_explainer/test_plan.json" in summary
+    assert "Run summary: data/runs/fake_failed_run/summary.json" in summary
     assert "Report draft: generated/reports/bug_report_fake_failed_run.md" in summary
     assert '"agent_run_id": "unit_trace_explainer"' in json_output
     assert markdown.startswith("# Agent Decision Trace: unit_trace_explainer")

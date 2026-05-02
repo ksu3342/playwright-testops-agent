@@ -185,6 +185,7 @@ def _print_agent_result(result: dict[str, object]) -> None:
         "agent_run_id",
         "final_status",
         "script_path",
+        "test_plan_path",
         "run_id",
         "run_dir",
         "report_draft_path",

@@ -20,7 +20,7 @@
 - 可选 `normalize` 之后，主流程已经能走通 `parse -> extract -> generate -> run -> report`。
 - CLI 主入口已经覆盖 `normalize`、`parse`、`generate`、`run`、`report`。
 - 轻量 FastAPI 包装层直接复用 Python 核心函数，提供 health、流程执行、run 查询与 artifact 查询接口。
-- Agent run 接口已经支持 `input_path` 或 `task_text`，能记录 trace、分析信息需求、支持人工审批节点，并提供本地 file-backed KB ingest/search；也可以选择 LangChain Core 本地 retriever adapter 和可选 LLM-assisted test-plan drafting。
+- Agent run 接口已经支持 `input_path`、`task_text` 或 `script_path`，能记录 trace、分析信息需求、支持人工审批节点，并提供本地 file-backed KB ingest/search；也可以选择 LangChain Core 本地 retriever adapter 和可选 LLM-assisted test-plan drafting。
 - 生成脚手架、运行摘要与报告草稿都会在运行时落盘到 `generated/tests/`、`data/runs/` 和 `generated/reports/`。这些输出可以本地复现，但不会作为固定公开样例提交。
 - 仓库里已经有 Docker 打包入口、compose 配置和 API 集成测试。
 
@@ -74,6 +74,7 @@ python -m app.main report --input data/runs/<run_id>
 - [demo_app/main.py](./demo_app/main.py) 是 executable login flow 使用的本地 demo target。
 - [app/rag/langchain_retriever.py](./app/rag/langchain_retriever.py) 使用 LangChain Core `Document` / `BaseRetriever` 接口包装本地 KB documents，同时保留确定性本地评分。
 - [app/agent/tools.py](./app/agent/tools.py) 把受控 workflow 函数作为 Python tools 暴露，并提供 LangChain-compatible `StructuredTool` 导出函数作为接口证据。
+- Agent run 会把审核用测试计划持久化到 `data/agent_runs/<agent_run_id>/test_plan.json`；需求输入的脚本生成会通过 `generate_test_from_plan` 消费已审核计划。
 - 可选 `planning_backend=llm_assisted` 只让 planner provider 生成可审核 test plan JSON；脚本生成和执行仍然走受控确定性工具。
 - [tests/unit/test_generator.py](./tests/unit/test_generator.py)、[tests/unit/test_runner.py](./tests/unit/test_runner.py)、[tests/demo/test_demo_app.py](./tests/demo/test_demo_app.py) 验证 generator、runner 和 demo app 行为。
 - [tests/integration/test_api.py](./tests/integration/test_api.py) 与 [tests/integration/test_pipeline.py](./tests/integration/test_pipeline.py) 覆盖 API 和 pipeline 层集成路径。
@@ -82,7 +83,7 @@ python -m app.main report --input data/runs/<run_id>
 
 - 当前实现仍然是 `CLI-first TestOps Agent MVP + thin FastAPI wrapper`
 - 可选的 `normalize` 步骤发生在确定性主流程之前；`planning_backend=llm_assisted` 可选启用 LLM 辅助测试计划草稿，默认仍是 deterministic
-- 确定性主流程是：`parse -> extract -> generate -> run -> report`
+- Agent 演示主流程是：`task_text -> retrieve -> test_plan.json -> approval -> generate_test_from_plan -> run -> report/trace`
 - 当前运行产物与报告持久化仍然使用文件系统：`data/runs`、`generated/reports`
 - 当前 KB 检索默认仍是 file-backed：`data/kb/index.json` 记录索引，`data/kb/uploaded/` 保存 API 上传内容；`backend=langchain_local` 只把同一批本地 KB 接入 LangChain Core document/retriever 接口，不做 embedding
 - 当前 Agent checkpoint 是 `trace.json + resume_state`，不是 LangGraph 原生 durable execution

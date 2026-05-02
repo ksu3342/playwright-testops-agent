@@ -2,6 +2,8 @@ import pytest
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 
+from app.core.reporter import create_bug_report_from_run
+from app.core.runner import run_test_script
 from app.rag.langchain_retriever import LocalKnowledgeRetriever, build_langchain_documents
 from app.rag.retriever import retrieve_testing_context
 
@@ -74,3 +76,42 @@ def test_retrieve_testing_context_supports_langchain_local_backend() -> None:
 def test_retrieve_testing_context_rejects_invalid_backend() -> None:
     with pytest.raises(ValueError, match="Unsupported retrieval backend"):
         retrieve_testing_context(query="login", backend="not_a_backend")
+
+
+@pytest.mark.parametrize(
+    ("query", "source_types", "expected_source_path"),
+    [
+        ("login email_input selector", ["selector_contract"], "data/contracts/demo_app_selectors.json"),
+        ("search empty_state selector", ["selector_contract"], "data/contracts/demo_app_selectors.json"),
+        ("login valid_password fixture", ["test_data_contract"], "data/contracts/demo_app_test_data.json"),
+        ("stable data-testid selectors guideline", ["test_guideline"], "data/kb/test_guidelines/playwright_guidelines.md"),
+        ("login dashboard visible success signal", ["product_doc"], "data/kb/product_docs/demo_app.md"),
+    ],
+)
+def test_rag_eval_queries_hit_expected_static_sources(
+    query: str,
+    source_types: list[str],
+    expected_source_path: str,
+) -> None:
+    result = retrieve_testing_context(query=query, source_types=source_types, max_results=3)
+
+    source_paths = [item["source_path"] for item in result["results"]]
+    assert expected_source_path in source_paths
+
+
+def test_rag_eval_queries_hit_recent_run_history_and_bug_report() -> None:
+    run_result = run_test_script("tests/assets/runner_fail_case.py")
+    report_result = create_bug_report_from_run(run_result["run_dir"])
+
+    result = retrieve_testing_context(
+        query=f"{run_result['run_id']} failed bug report",
+        source_types=["run_history", "bug_report"],
+        max_results=5,
+    )
+
+    source_types = {item["source_type"] for item in result["results"]}
+    source_paths = [item["source_path"] for item in result["results"]]
+    assert "run_history" in source_types
+    assert "bug_report" in source_types
+    assert run_result["artifact_paths"]["summary"] in source_paths
+    assert report_result["report_path"] in source_paths

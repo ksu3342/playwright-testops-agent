@@ -31,6 +31,14 @@ Run a task-text Agent flow with human approval:
 .\.venv\Scripts\python.exe -m app.main agent-trace --agent-run-id <agent_run_id> --format summary
 ```
 
+Recommended talk track for this demo:
+
+1. `task_text` is normalized into a parser-compatible input.
+2. The Agent retrieves file-backed testing context from product docs, contracts, guidelines, run history, and reports.
+3. The Agent writes the reviewable plan to `data/agent_runs/<agent_run_id>/test_plan.json`.
+4. Human approval of `test_plan` unlocks generation from that approved plan, not from a fresh implicit extraction.
+5. Human approval of `execution` runs the generated script, then the trace links the generated script, run summary, report draft when present, and decision state.
+
 Run an existing-script failure path through the Agent and render a markdown decision trace:
 
 ```powershell
@@ -40,4 +48,4 @@ Run an existing-script failure path through the Agent and render a markdown deci
 .\.venv\Scripts\python.exe -m app.main agent-trace --agent-run-id <agent_run_id> --format markdown
 ```
 
-The Agent trace is still file-backed (`trace.json + resume_state`). KB retrieval is local lexical retrieval or the optional LangChain Core local adapter, not a production vector database or embedding pipeline.
+The Agent trace is still file-backed (`trace.json + resume_state`). KB retrieval is local lexical retrieval or the optional LangChain Core local adapter, not a production vector database or embedding pipeline. Execution is synchronous and file-system backed; this demo is an Agent MVP, not a queue-backed durable platform.

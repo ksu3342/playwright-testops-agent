@@ -108,6 +108,17 @@ class AgentRunTracer:
         self.trace["error"] = None
         self._write()
 
+    def save_test_plan(self, test_plan: dict[str, Any]) -> str:
+        test_plan_path = self.run_dir / "test_plan.json"
+        test_plan_path.write_text(json.dumps(_json_safe(test_plan), indent=2), encoding="utf-8")
+        artifact_paths = self.trace.setdefault("artifact_paths", {})
+        if not isinstance(artifact_paths, dict):
+            artifact_paths = {}
+            self.trace["artifact_paths"] = artifact_paths
+        artifact_paths["test_plan"] = _relative_to_repo(test_plan_path)
+        self._write()
+        return str(artifact_paths["test_plan"])
+
     def call_tool(self, tool_name: str, tool_input: dict[str, Any], tool_func: Callable[[], T]) -> T:
         sequence = len(self.trace["tool_calls"]) + 1
         start = _utc_now()

@@ -25,6 +25,7 @@ class AgentGraphState(TypedDict, total=False):
     information_needs: dict[str, Any]
     retrieval_result: dict[str, Any]
     test_plan: dict[str, Any]
+    test_plan_path: str
     plan_validation: dict[str, Any]
     generate_result: dict[str, Any]
     run_result: dict[str, Any]
@@ -133,6 +134,7 @@ def _build_final_output(state: AgentGraphState) -> dict[str, Any]:
         "retrieval_backend": retrieval_result.get("retrieval_backend"),
         "retrieval_implementation": retrieval_result.get("retrieval_implementation"),
         "test_plan": state.get("test_plan"),
+        "test_plan_path": state.get("test_plan_path"),
         "planning_strategy": test_plan.get("planning_strategy"),
         "planning_backend": test_plan.get("planning_backend"),
         "planning_implementation": test_plan.get("planning_implementation"),
@@ -244,7 +246,8 @@ def _draft_test_plan_node(tracer: AgentRunTracer):
                 planning_backend=planning_backend,
             ),
         )
-        return {"test_plan": test_plan}
+        test_plan_path = tracer.save_test_plan(test_plan)
+        return {"test_plan": test_plan, "test_plan_path": test_plan_path}
 
     return draft_test_plan_node
 
@@ -313,11 +316,17 @@ def _generate_node(tracer: AgentRunTracer):
             return {}
         input_path = state["input_path"]
         retrieval_result = state.get("retrieval_result")
+        test_plan = state["test_plan"]
         context_sources = _retrieved_context_summary(retrieval_result)["source_paths"]
         generate_result = tracer.call_tool(
-            "generate_test",
-            {"input_path": input_path, "context_source_paths": context_sources},
-            lambda: tools.generate_test(input_path, testing_context=retrieval_result),
+            "generate_test_from_plan",
+            {
+                "input_path": input_path,
+                "test_plan_path": state.get("test_plan_path"),
+                "test_plan_case_count": len(test_plan.get("test_cases", [])) if isinstance(test_plan, dict) else 0,
+                "context_source_paths": context_sources,
+            },
+            lambda: tools.generate_test_from_plan(input_path, test_plan, testing_context=retrieval_result),
         )
         return {"generate_result": generate_result}
 

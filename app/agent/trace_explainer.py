@@ -38,6 +38,13 @@ def _source_paths(final_output: dict[str, Any]) -> list[str]:
     return _string_list(retrieved_context.get("source_paths"))
 
 
+def _artifact_path(trace: dict[str, Any], key: str) -> str | None:
+    artifact_paths = trace.get("artifact_paths")
+    if isinstance(artifact_paths, dict) and isinstance(artifact_paths.get(key), str):
+        return artifact_paths[key]
+    return None
+
+
 def _tool_call_lines(trace: dict[str, Any]) -> list[str]:
     tool_calls = trace.get("tool_calls")
     if not isinstance(tool_calls, list):
@@ -102,6 +109,9 @@ def render_trace_summary(trace: dict[str, Any]) -> str:
         lines.append(f"Script path: {input_payload.get('script_path') or final_output.get('script_path')}")
     if final_output.get("module"):
         lines.append(f"Module: {final_output.get('module')}")
+    test_plan_path = final_output.get("test_plan_path") or _artifact_path(trace, "test_plan")
+    if test_plan_path:
+        lines.append(f"Test plan: {test_plan_path}")
 
     required_context = _string_list(information_needs.get("required_context_types"))
     if required_context:
@@ -115,6 +125,12 @@ def render_trace_summary(trace: dict[str, Any]) -> str:
         lines.append(f"Plan validation: {plan_validation.get('status')} ({plan_validation.get('reason')})")
     if final_output.get("run_id"):
         lines.append(f"Run: {final_output.get('run_id')} [{final_output.get('run_status')}]")
+    summary_path = None
+    artifact_paths = final_output.get("artifact_paths")
+    if isinstance(artifact_paths, dict) and isinstance(artifact_paths.get("summary"), str):
+        summary_path = artifact_paths["summary"]
+    if summary_path:
+        lines.append(f"Run summary: {summary_path}")
     if final_output.get("report_draft_path"):
         lines.append(f"Report draft: {final_output.get('report_draft_path')}")
     if final_output.get("pending_approval"):

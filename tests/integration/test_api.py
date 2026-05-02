@@ -17,7 +17,7 @@ AGENT_SUCCESS_TOOL_SEQUENCE = [
     "retrieve_testing_context",
     "draft_test_plan",
     "validate_test_plan",
-    "generate_test",
+    "generate_test_from_plan",
     "run_test",
     "collect_run_evidence",
 ]
@@ -376,6 +376,8 @@ def test_agent_run_endpoint_executes_login_flow_and_returns_trace_path() -> None
     assert payload["run_dir"].startswith("data/runs/")
     assert payload["artifact_paths"]["summary"].endswith("summary.json")
     assert payload["trace_path"].startswith("data/agent_runs/")
+    assert payload["test_plan_path"].startswith("data/agent_runs/")
+    assert payload["test_plan_path"].endswith("/test_plan.json")
     assert payload["retrieved_context"]["result_count"] >= 1
     assert payload["test_plan"]["feature_name"] == "User Login"
     assert payload["plan_validation"]["status"] == "passed"
@@ -388,6 +390,7 @@ def test_agent_run_endpoint_executes_login_flow_and_returns_trace_path() -> None
     assert payload["queried_artifacts"]["run_id"] == payload["run_id"]
     assert payload["checkpoint_mode"] == "trace_resume_state"
     assert Path(payload["trace_path"]).exists()
+    assert Path(payload["test_plan_path"]).exists()
 
 
 def test_agent_run_endpoint_accepts_langchain_local_retrieval_backend() -> None:
@@ -412,6 +415,7 @@ def test_agent_run_endpoint_accepts_langchain_local_retrieval_backend() -> None:
     assert trace["input"]["retrieval_backend"] == "langchain_local"
     assert trace["final_output"]["retrieval_backend"] == "langchain_local"
     assert trace["final_output"]["retrieval_implementation"] == "langchain_local_documents"
+    assert trace["final_output"]["test_plan_path"] == payload["test_plan_path"]
 
 
 def test_agent_run_endpoint_rejects_invalid_retrieval_backend() -> None:
@@ -460,6 +464,7 @@ def test_agent_run_endpoint_accepts_llm_assisted_planning_backend(monkeypatch) -
     assert payload["planning_implementation"] == "llm_assisted_reviewable_json"
     assert payload["planner_provider"] == "mock"
     assert payload["test_plan"]["risks"]
+    assert payload["test_plan_path"].endswith("/test_plan.json")
 
     trace_response = client.get(f"/api/v1/agent-runs/{payload['agent_run_id']}/trace")
     trace = trace_response.json()
@@ -491,6 +496,7 @@ def test_agent_run_endpoint_accepts_task_text_and_lists_by_module() -> None:
     assert payload["information_needs"]["required_context_types"]
     assert "run_history" in payload["information_needs"]["required_context_types"]
     assert payload["test_plan"]["planning_strategy"] == "deterministic_scaffold"
+    assert Path(payload["test_plan_path"]).exists()
 
     list_response = client.get(
         "/api/v1/agent-runs",
@@ -588,6 +594,7 @@ def test_agent_run_trace_endpoint_returns_tool_calls() -> None:
     assert all(call["status"] == "succeeded" for call in tool_calls)
     assert trace["final_output"]["artifact_paths"]["summary"].endswith("summary.json")
     assert trace["final_output"]["checkpoint_mode"] == "trace_resume_state"
+    assert trace["final_output"]["test_plan_path"] == payload["test_plan_path"]
     assert trace["final_output"]["retrieval_backend"] == "file_lexical"
     assert trace["final_output"]["retrieval_implementation"] == "deterministic_file_lexical"
     assert trace["final_output"]["planning_backend"] == "deterministic"
@@ -600,6 +607,7 @@ def test_agent_run_manual_approval_flow_pauses_and_resumes() -> None:
     assert created["final_status"] == "waiting_for_test_plan_approval"
     assert created["pending_approval"]["gate"] == "test_plan"
     assert created["test_plan"]["feature_name"] == "User Login"
+    assert Path(created["test_plan_path"]).exists()
     assert created["retrieval_backend"] == "langchain_local"
     assert created["retrieval_implementation"] == "langchain_local_documents"
     assert created["planning_backend"] == "deterministic"
@@ -692,6 +700,7 @@ def test_agent_run_manual_task_text_flow_uses_approve_alias() -> None:
     assert after_execution["final_status"] == "passed"
     assert after_execution["task"]["module"] == module
     assert after_execution["run_summary"]["run_id"] == after_execution["run_id"]
+    assert after_execution["test_plan_path"] == created["test_plan_path"]
 
 
 def test_agent_run_manual_approve_alias_completes_approval_flow() -> None:
