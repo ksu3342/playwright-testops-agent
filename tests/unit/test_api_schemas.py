@@ -36,7 +36,15 @@ def test_agent_run_request_accepts_task_text_payload() -> None:
     assert request.planning_backend == "llm_assisted"
 
 
-def test_agent_run_request_requires_input_path_or_task_text() -> None:
+def test_agent_run_request_accepts_script_path_payload() -> None:
+    request = AgentRunRequest(script_path="tests/assets/runner_pass_case.py")
+
+    assert request.input_path is None
+    assert request.script_path == "tests/assets/runner_pass_case.py"
+    assert request.task_text is None
+
+
+def test_agent_run_request_requires_input_path_task_text_or_script_path() -> None:
     with pytest.raises(ValidationError):
         AgentRunRequest()
 
@@ -48,9 +56,22 @@ def test_agent_task_text_resolves_to_api_input_file() -> None:
         module="login",
     )
 
-    input_path, task = _resolve_agent_run_input(request)
+    input_path, task, script_path = _resolve_agent_run_input(request)
 
     assert input_path.startswith("data/api_inputs/")
     assert input_path.endswith("_agent_task.md")
+    assert script_path is None
     assert task["generated_input_path"] == input_path
     assert task["module"] == "login"
+
+
+def test_script_path_resolves_to_existing_script_agent_input() -> None:
+    request = AgentRunRequest(script_path="tests/assets/runner_pass_case.py", module="existing script")
+
+    input_path, task, script_path = _resolve_agent_run_input(request)
+
+    assert input_path == "tests/assets/runner_pass_case.py"
+    assert script_path == "tests/assets/runner_pass_case.py"
+    assert task["script_path"] == "tests/assets/runner_pass_case.py"
+    assert task["execution_mode"] == "existing_script"
+    assert task["module"] == "existing script"

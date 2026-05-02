@@ -16,6 +16,13 @@ SUCCESS_TOOL_SEQUENCE = [
     "collect_run_evidence",
 ]
 
+EXISTING_SCRIPT_FAILED_TOOL_SEQUENCE = [
+    "prepare_existing_script_execution",
+    "run_test",
+    "collect_run_evidence",
+    "create_report",
+]
+
 
 def _load_trace(trace_path: str) -> dict[str, object]:
     return json.loads(Path(trace_path).read_text(encoding="utf-8"))
@@ -168,6 +175,24 @@ def test_agent_orchestrator_invokes_report_tool_for_failed_run(monkeypatch) -> N
         "create_report",
     ]
     assert trace["final_output"]["report_path"] == "generated/reports/bug_report_fake_failed_run.md"
+
+
+def test_agent_orchestrator_runs_existing_script_failed_report_path() -> None:
+    result = run_agent_task(
+        "tests/assets/runner_fail_case.py",
+        agent_run_id="existing_script_orchestrator_failed_report",
+        script_path="tests/assets/runner_fail_case.py",
+    )
+
+    assert result["final_status"] == "failed"
+    assert result["script_path"] == "tests/assets/runner_fail_case.py"
+    assert result["report_draft_path"].startswith("generated/reports/")
+    assert result["test_plan"] is None
+    assert Path(result["report_draft_path"]).exists()
+
+    trace = _load_trace(result["trace_path"])
+    assert [call["tool_name"] for call in trace["tool_calls"]] == EXISTING_SCRIPT_FAILED_TOOL_SEQUENCE
+    assert trace["final_output"]["script_path"] == "tests/assets/runner_fail_case.py"
 
 
 def test_agent_orchestrator_manual_mode_pauses_and_resumes_login_flow() -> None:

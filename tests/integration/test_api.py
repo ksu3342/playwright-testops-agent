@@ -22,6 +22,13 @@ AGENT_SUCCESS_TOOL_SEQUENCE = [
     "collect_run_evidence",
 ]
 
+AGENT_EXISTING_SCRIPT_FAILED_TOOL_SEQUENCE = [
+    "prepare_existing_script_execution",
+    "run_test",
+    "collect_run_evidence",
+    "create_report",
+]
+
 
 def _create_run(input_path: str) -> dict[str, object]:
     response = client.post("/api/v1/run", json={"input_path": input_path})
@@ -496,6 +503,59 @@ def test_agent_run_endpoint_accepts_task_text_and_lists_by_module() -> None:
     matched = [item for item in list_payload["agent_runs"] if item["agent_run_id"] == payload["agent_run_id"]][0]
     assert matched["module"] == module
     assert matched["trace_path"] == payload["trace_path"]
+
+
+def test_agent_run_endpoint_accepts_script_path_for_manual_failed_report_flow() -> None:
+    create_response = client.post(
+        "/api/v1/agent-runs",
+        json={
+            "script_path": "tests/assets/playwright_login_failure_case.py",
+            "approval_mode": "manual",
+            "module": "playwright failure",
+        },
+    )
+    created = create_response.json()
+
+    assert create_response.status_code == 200
+    assert created["final_status"] == "waiting_for_execution_approval"
+    assert created["script_path"] == "tests/assets/playwright_login_failure_case.py"
+    assert created["run_id"] is None
+    assert created["pending_approval"]["gate"] == "execution"
+
+    execution_response = client.post(
+        f"/api/v1/agent-runs/{created['agent_run_id']}/approvals",
+        json={"gate": "execution", "decision": "approved", "reviewer": "pytest"},
+    )
+    after_execution = execution_response.json()
+
+    assert execution_response.status_code == 200
+    assert after_execution["final_status"] == "waiting_for_report_approval"
+    assert after_execution["run_status"] == "failed"
+    assert after_execution["report_draft_path"].startswith("generated/reports/")
+    assert after_execution["artifact_paths"]["screenshot"].endswith("screenshots/login_failure.png")
+    assert Path(after_execution["artifact_paths"]["screenshot"]).exists()
+    assert Path(after_execution["report_draft_path"]).exists()
+    assert after_execution["pending_approval"]["gate"] == "report"
+
+    report_response = client.post(
+        f"/api/v1/agent-runs/{created['agent_run_id']}/approvals",
+        json={"gate": "report", "decision": "approved", "reviewer": "pytest"},
+    )
+    after_report = report_response.json()
+
+    assert report_response.status_code == 200
+    assert after_report["final_status"] == "failed"
+    assert after_report["report_approved"] is True
+    assert after_report["report_exported"] is True
+
+    trace_response = client.get(f"/api/v1/agent-runs/{created['agent_run_id']}/trace")
+    trace = trace_response.json()
+
+    assert trace_response.status_code == 200
+    assert [call["tool_name"] for call in trace["tool_calls"]] == AGENT_EXISTING_SCRIPT_FAILED_TOOL_SEQUENCE
+    assert trace["input"]["script_path"] == "tests/assets/playwright_login_failure_case.py"
+    assert trace["human_approvals"]["execution"]["decision"] == "approved"
+    assert trace["human_approvals"]["report"]["decision"] == "approved"
 
 
 def test_agent_run_summary_endpoint_returns_saved_trace_summary() -> None:

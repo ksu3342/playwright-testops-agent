@@ -19,3 +19,25 @@ Fixed demo behaviors:
 3. `POST /login` with invalid credentials shows an inline error on the page.
 4. `GET /search?q=playwright` returns a visible results list.
 5. `GET /search?q=no-hit` returns an empty state.
+
+## Agent CLI Demo
+
+Run a task-text Agent flow with human approval:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main agent-run --task "Verify login happy path with valid credentials." --target-url /login --module login --approval-mode manual
+.\.venv\Scripts\python.exe -m app.main agent-approve --agent-run-id <agent_run_id> --gate test_plan --decision approved --reviewer demo
+.\.venv\Scripts\python.exe -m app.main agent-approve --agent-run-id <agent_run_id> --gate execution --decision approved --reviewer demo
+.\.venv\Scripts\python.exe -m app.main agent-trace --agent-run-id <agent_run_id> --format summary
+```
+
+Run an existing-script failure path through the Agent and render a markdown decision trace:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main agent-run --script tests/assets/playwright_login_failure_case.py --approval-mode manual --module "playwright failure"
+.\.venv\Scripts\python.exe -m app.main agent-approve --agent-run-id <agent_run_id> --gate execution --decision approved --reviewer demo
+.\.venv\Scripts\python.exe -m app.main agent-approve --agent-run-id <agent_run_id> --gate report --decision approved --reviewer demo
+.\.venv\Scripts\python.exe -m app.main agent-trace --agent-run-id <agent_run_id> --format markdown
+```
+
+The Agent trace is still file-backed (`trace.json + resume_state`). KB retrieval is local lexical retrieval or the optional LangChain Core local adapter, not a production vector database or embedding pipeline.

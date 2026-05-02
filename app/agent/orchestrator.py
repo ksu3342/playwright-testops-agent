@@ -31,6 +31,7 @@ def _retrieved_context_summary(retrieval_result: Optional[dict[str, Any]]) -> di
 
 def _build_final_output(
     input_path: str,
+    script_path: Optional[str],
     task: Optional[dict[str, Any]],
     information_needs: Optional[dict[str, Any]],
     retrieval_result: Optional[dict[str, Any]],
@@ -63,7 +64,7 @@ def _build_final_output(
         "input_path": input_path,
         "task": task or None,
         "module": task.get("module") or test_plan.get("feature_name"),
-        "script_path": generate_result.get("script_path"),
+        "script_path": generate_result.get("script_path") or script_path,
         "run_id": run_result.get("run_id"),
         "run_dir": run_result.get("run_dir"),
         "run_status": run_result.get("status"),
@@ -107,6 +108,7 @@ def _resume_state_from_graph_state(graph_state: dict[str, Any]) -> dict[str, Any
         "report_result",
         "report_approved",
         "report_exported",
+        "script_path",
         "task",
         "retrieval_backend",
         "planning_backend",
@@ -127,6 +129,7 @@ def _run_with_tracer(
     approvals: Optional[dict[str, Any]] = None,
     resume_state: Optional[dict[str, Any]] = None,
     task: Optional[dict[str, Any]] = None,
+    script_path: Optional[str] = None,
     retrieval_backend: str = "file_lexical",
     planning_backend: str = "deterministic",
 ) -> dict[str, Any]:
@@ -142,6 +145,7 @@ def _run_with_tracer(
             approvals=approvals,
             resume_state=resume_state,
             task=task,
+            script_path=script_path,
             retrieval_backend=retrieval_backend,
             planning_backend=planning_backend,
         )
@@ -150,6 +154,7 @@ def _run_with_tracer(
         if not isinstance(final_output, dict):
             final_output = _build_final_output(
                 input_path,
+                graph_state.get("script_path") if isinstance(graph_state.get("script_path"), str) else script_path,
                 graph_state.get("task") if isinstance(graph_state.get("task"), dict) else task,
                 graph_state.get("information_needs"),
                 graph_state.get("retrieval_result"),
@@ -194,6 +199,7 @@ def run_agent_task(
     agent_run_id: Optional[str] = None,
     approval_mode: ApprovalMode = "auto",
     task: Optional[dict[str, Any]] = None,
+    script_path: Optional[str] = None,
     retrieval_backend: str = "file_lexical",
     planning_backend: str = "deterministic",
 ) -> dict[str, Any]:
@@ -203,6 +209,8 @@ def run_agent_task(
         "retrieval_backend": retrieval_backend,
         "planning_backend": planning_backend,
     }
+    if script_path:
+        initial_input["script_path"] = script_path
     if task:
         initial_input["task"] = task
     tracer = AgentRunTracer.create(
@@ -214,6 +222,7 @@ def run_agent_task(
         input_path,
         approval_mode=approval_mode,
         task=task,
+        script_path=script_path,
         retrieval_backend=retrieval_backend,
         planning_backend=planning_backend,
     )
@@ -255,6 +264,9 @@ def continue_agent_run(
     planning_backend = input_payload.get("planning_backend")
     if not isinstance(planning_backend, str):
         planning_backend = "deterministic"
+    script_path = input_payload.get("script_path")
+    if not isinstance(script_path, str):
+        script_path = None
 
     tracer.record_approval_decision(gate, decision, reviewer=reviewer, comment=comment)
 
@@ -273,6 +285,7 @@ def continue_agent_run(
         approvals=approvals,
         resume_state=resume_state,
         task=task,
+        script_path=script_path,
         retrieval_backend=retrieval_backend,
         planning_backend=planning_backend,
     )

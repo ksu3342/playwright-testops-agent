@@ -25,11 +25,12 @@ This bounded TestOps workflow is designed for portfolio demonstration.
 5. **Agent/RAG platform-facing layer** (`app/agent/`, `app/rag/`)
    - Wraps parse/retrieve/plan/generate/run/report as traceable agent steps
    - Stores agent traces under `data/agent_runs/`
-   - Accepts either PRD file paths or API-submitted task text
+   - Accepts PRD file paths, API/CLI-submitted task text, or existing Python test scripts
    - Records deterministic information-need analysis before retrieval
    - Uses `data/kb/index.json` and `data/kb/uploaded/` for local file-backed KB ingest/search
    - Keeps KB search deterministic; it is not a production vector database
    - Uses `trace.json + resume_state` as a local checkpoint record; it is not LangGraph-native durable execution
+   - Renders readable decision traces from `trace.json` for CLI demos and human review
 
 ## Design principles
 - Deterministic parse/extract/generate/run/report flow
@@ -54,6 +55,9 @@ data/runs/<run_id>/
 ```
 data/agent_runs/<agent_run_id>/trace.json
   # agent tool calls, approvals, final output, and resume state
+
+data/agent_runs/<agent_run_id>/decision_trace.md
+  # optional human-readable trace rendered by `python -m app.main agent-trace --format markdown`
 
 data/kb/index.json
   # local KB index written by POST /api/v1/kb/ingest

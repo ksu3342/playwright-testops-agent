@@ -120,7 +120,7 @@ def _format_agent_task_markdown(request: AgentRunRequest) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
-def _resolve_agent_run_input(request: AgentRunRequest) -> tuple[str, dict[str, object]]:
+def _resolve_agent_run_input(request: AgentRunRequest) -> tuple[str, dict[str, object], Optional[str]]:
     task_payload: dict[str, object] = {}
     if request.task_text and request.task_text.strip():
         task_payload["task_text"] = request.task_text.strip()
@@ -131,8 +131,13 @@ def _resolve_agent_run_input(request: AgentRunRequest) -> tuple[str, dict[str, o
     if request.constraints:
         task_payload["constraints"] = request.constraints
 
+    if request.script_path:
+        task_payload["script_path"] = request.script_path
+        task_payload["execution_mode"] = "existing_script"
+        return request.input_path or request.script_path, task_payload, request.script_path
+
     if request.input_path:
-        return request.input_path, task_payload
+        return request.input_path, task_payload, None
 
     output_path = _write_inline_input(
         _format_agent_task_markdown(request),
@@ -141,7 +146,7 @@ def _resolve_agent_run_input(request: AgentRunRequest) -> tuple[str, dict[str, o
         default_suffix=".md",
     )
     task_payload["generated_input_path"] = _relative_to_repo(output_path)
-    return _relative_to_repo(output_path), task_payload
+    return _relative_to_repo(output_path), task_payload, None
 
 
 def _resolve_text_input(request: TextInputRequest, prefix: str, default_suffix: str = ".md") -> str:
@@ -337,7 +342,7 @@ def get_run_artifacts(run_id: str) -> RunArtifactsResponse:
 
 @app.post("/api/v1/agent-runs", response_model=AgentRunResponse)
 def create_agent_run(request: AgentRunRequest) -> AgentRunResponse:
-    input_path, task = _resolve_agent_run_input(request)
+    input_path, task, script_path = _resolve_agent_run_input(request)
     try:
         retrieval_backend = validate_retrieval_backend(request.retrieval_backend)
         planning_backend = validate_planning_backend(request.planning_backend)
@@ -347,6 +352,7 @@ def create_agent_run(request: AgentRunRequest) -> AgentRunResponse:
         input_path,
         approval_mode=request.approval_mode,
         task=task or None,
+        script_path=script_path,
         retrieval_backend=retrieval_backend,
         planning_backend=planning_backend,
     )

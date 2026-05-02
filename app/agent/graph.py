@@ -14,6 +14,7 @@ ApprovalRoute = Literal["continue", "end"]
 
 class AgentGraphState(TypedDict, total=False):
     input_path: str
+    script_path: str
     task: dict[str, Any]
     trace_path: str
     retrieval_backend: str
@@ -83,7 +84,8 @@ def _pending_payload(state: AgentGraphState, gate: str) -> dict[str, Any]:
     if gate == "execution":
         generate_result = state.get("generate_result") or {}
         return {
-            "script_path": generate_result.get("script_path"),
+            "script_path": generate_result.get("script_path") or state.get("script_path"),
+            "generation_mode": generate_result.get("generation_mode"),
             "test_plan": state.get("test_plan"),
             "plan_validation": state.get("plan_validation"),
         }
@@ -116,7 +118,7 @@ def _build_final_output(state: AgentGraphState) -> dict[str, Any]:
         "input_path": state["input_path"],
         "task": task or None,
         "module": task.get("module") or test_plan.get("feature_name"),
-        "script_path": generate_result.get("script_path"),
+        "script_path": generate_result.get("script_path") or state.get("script_path"),
         "run_id": run_result.get("run_id"),
         "run_dir": run_result.get("run_dir"),
         "run_status": run_result.get("status"),
@@ -143,6 +145,14 @@ def _build_final_output(state: AgentGraphState) -> dict[str, Any]:
         "pending_approval": state.get("pending_approval"),
         "human_approvals": _approval_summary(state),
     }
+
+
+def _route_input(state: AgentGraphState) -> Literal["requirement", "existing_script"]:
+    return "existing_script" if state.get("script_path") else "requirement"
+
+
+def _route_input_node(state: AgentGraphState) -> dict[str, Any]:
+    return {}
 
 
 def _parse_node(tracer: AgentRunTracer):
@@ -252,6 +262,21 @@ def _validate_test_plan_node(tracer: AgentRunTracer):
         return {"plan_validation": plan_validation}
 
     return validate_test_plan_node
+
+
+def _prepare_existing_script_node(tracer: AgentRunTracer):
+    def prepare_existing_script_node(state: AgentGraphState) -> dict[str, Any]:
+        if state.get("generate_result"):
+            return {}
+        script_path = state["script_path"]
+        generate_result = tracer.call_tool(
+            "prepare_existing_script_execution",
+            {"script_path": script_path},
+            lambda: tools.prepare_existing_script_execution(script_path),
+        )
+        return {"generate_result": generate_result, "script_path": generate_result["script_path"]}
+
+    return prepare_existing_script_node
 
 
 def _test_plan_approval_node(tracer: AgentRunTracer):
@@ -443,10 +468,12 @@ def _route_after_run_evidence(state: AgentGraphState) -> Literal["report", "fina
 
 def build_agent_graph(tracer: AgentRunTracer):
     graph = StateGraph(AgentGraphState)
+    graph.add_node("route_input", _route_input_node)
     graph.add_node("parse", _parse_node(tracer))
     graph.add_node("retrieve_context", _retrieve_context_node(tracer))
     graph.add_node("draft_test_plan", _draft_test_plan_node(tracer))
     graph.add_node("validate_test_plan", _validate_test_plan_node(tracer))
+    graph.add_node("prepare_existing_script", _prepare_existing_script_node(tracer))
     graph.add_node("test_plan_approval", _test_plan_approval_node(tracer))
     graph.add_node("generate", _generate_node(tracer))
     graph.add_node("execution_approval", _execution_approval_node(tracer))
@@ -456,7 +483,12 @@ def build_agent_graph(tracer: AgentRunTracer):
     graph.add_node("report_approval", _report_approval_node(tracer))
     graph.add_node("finalize", _finalize_node)
 
-    graph.add_edge(START, "parse")
+    graph.add_edge(START, "route_input")
+    graph.add_conditional_edges(
+        "route_input",
+        _route_input,
+        {"requirement": "parse", "existing_script": "prepare_existing_script"},
+    )
     graph.add_node("analyze_information_needs", _analyze_information_needs_node(tracer))
     graph.add_edge("parse", "analyze_information_needs")
     graph.add_edge("analyze_information_needs", "retrieve_context")
@@ -468,6 +500,7 @@ def build_agent_graph(tracer: AgentRunTracer):
         _route_after_test_plan_approval,
         {"continue": "generate", "end": END},
     )
+    graph.add_edge("prepare_existing_script", "execution_approval")
     graph.add_edge("generate", "execution_approval")
     graph.add_conditional_edges(
         "execution_approval",
@@ -493,6 +526,7 @@ def invoke_agent_graph(
     approvals: Optional[dict[str, Any]] = None,
     resume_state: Optional[dict[str, Any]] = None,
     task: Optional[dict[str, Any]] = None,
+    script_path: Optional[str] = None,
     retrieval_backend: str = "file_lexical",
     planning_backend: str = "deterministic",
 ) -> AgentGraphState:
@@ -507,6 +541,8 @@ def invoke_agent_graph(
     }
     if task:
         initial_state["task"] = task
+    if script_path:
+        initial_state["script_path"] = script_path
     if resume_state:
         initial_state.update(resume_state)
     return graph.invoke(initial_state)

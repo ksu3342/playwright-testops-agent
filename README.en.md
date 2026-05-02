@@ -28,9 +28,9 @@ Test inputs often start as PRDs, rough notes, or half-structured requirement tex
 ## What Is Already Implemented
 
 - After an optional `normalize` step, the implemented flow is `parse -> extract -> generate -> run -> report`.
-- The CLI already exposes `normalize`, `parse`, `generate`, `run`, and `report`.
+- The CLI exposes `normalize`, `parse`, `generate`, `run`, `report`, plus Agent demo commands: `agent-run`, `agent-approve`, and `agent-trace`.
 - FastAPI already exposes health checks, pipeline execution, run lookup, and artifact lookup.
-- Agent run endpoints now accept either `input_path` or `task_text`, record traces, analyze information needs, pause for human approval, use local file-backed KB ingest/search with an optional LangChain Core local retriever adapter, and support optional LLM-assisted test-plan drafting with deterministic guardrails.
+- Agent run endpoints now accept `input_path`, `task_text`, or `script_path`; record traces; analyze information needs; pause for human approval; use local file-backed KB ingest/search with an optional LangChain Core local retriever adapter; and support optional LLM-assisted test-plan drafting with deterministic guardrails.
 - Generated scaffolds, run summaries, and report drafts are written to `generated/tests/`, `data/runs/`, and `generated/reports/` at runtime. Those outputs are reproducible locally but are not committed as fixed public samples.
 - The repo already includes [Docker packaging](./Dockerfile), [docker-compose.yml](./docker-compose.yml), and [API integration tests](./tests/integration/test_api.py).
 
@@ -84,6 +84,7 @@ The report path under `generated/reports/` is also a runtime output, not a fixed
 - [demo_app/main.py](./demo_app/main.py) is the local demo target used by the executable login flow.
 - [app/rag/langchain_retriever.py](./app/rag/langchain_retriever.py) wraps the local KB documents with LangChain Core `Document` / `BaseRetriever` interfaces while preserving deterministic local scoring.
 - [app/agent/tools.py](./app/agent/tools.py) exposes the controlled workflow functions as Python tools and provides a LangChain-compatible `StructuredTool` export for interface evidence.
+- [app/agent/trace_explainer.py](./app/agent/trace_explainer.py) renders `trace.json` as a concise decision trace for CLI demos and review.
 - Optional `planning_backend=llm_assisted` asks a configured planner provider for reviewable test-plan JSON only; generated scripts and execution still go through controlled deterministic tools.
 - [tests/unit/test_generator.py](./tests/unit/test_generator.py), [tests/unit/test_runner.py](./tests/unit/test_runner.py), and [tests/demo/test_demo_app.py](./tests/demo/test_demo_app.py) verify generator, runner, and demo behavior.
 - [tests/integration/test_api.py](./tests/integration/test_api.py) and [tests/integration/test_pipeline.py](./tests/integration/test_pipeline.py) cover the API-facing and pipeline-facing integration paths.
@@ -146,12 +147,27 @@ GET  /api/v1/kb/search?query=login%20selector&max_results=5&backend=langchain_lo
 
 `/approve` is a compatibility alias for `/approvals`. KB ingest accepts `source_type`, optional `source_path`, optional `content`, and optional `metadata`; content uploads are written under `data/kb/uploaded/` and indexed through `data/kb/index.json`. KB search and agent runs return retrieval metadata, and agent runs also return `planning_backend` / `planning_implementation` so the trace shows whether deterministic or LLM-assisted planning was used.
 
-Agent runs can be created from a tracked PRD path or a task payload:
+Agent runs can be created from a tracked PRD path, a task payload, or an existing test script:
 
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8000/api/v1/agent-runs" `
   -H "Content-Type: application/json" `
   -d '{"task_text":"Verify login happy path with valid credentials.","target_url":"/login","module":"login","constraints":["Use selector contracts"],"retrieval_backend":"langchain_local","planning_backend":"llm_assisted"}'
+
+curl.exe -X POST "http://127.0.0.1:8000/api/v1/agent-runs" `
+  -H "Content-Type: application/json" `
+  -d '{"script_path":"tests/assets/playwright_login_failure_case.py","approval_mode":"manual","module":"playwright failure"}'
+```
+
+The same Agent flow can be demonstrated through CLI without a server:
+
+```powershell
+python -m app.main agent-run --task "Verify login happy path with valid credentials." --target-url /login --module login --approval-mode manual
+python -m app.main agent-approve --agent-run-id <agent_run_id> --gate test_plan --decision approved
+python -m app.main agent-approve --agent-run-id <agent_run_id> --gate execution --decision approved
+python -m app.main agent-trace --agent-run-id <agent_run_id> --format summary
+python -m app.main agent-run --script tests/assets/playwright_login_failure_case.py --approval-mode manual --module "playwright failure"
+python -m app.main agent-trace --agent-run-id <agent_run_id> --format markdown
 ```
 
 The list endpoint reads local `data/agent_runs/*/trace.json` files and supports `status`, `final_status`, `module`, and `limit` filters.

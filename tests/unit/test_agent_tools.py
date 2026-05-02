@@ -14,6 +14,7 @@ from app.agent.tools import (
     get_langchain_tools,
     get_artifacts,
     get_run_summary,
+    prepare_existing_script_execution,
     parse_requirement,
     retrieve_testing_context,
     run_test,
@@ -38,6 +39,7 @@ def test_agent_tool_registry_exposes_expected_tools() -> None:
         "retrieve_testing_context",
         "draft_test_plan",
         "validate_test_plan",
+        "prepare_existing_script_execution",
         "generate_test",
         "run_test",
         "create_report",
@@ -212,6 +214,14 @@ def test_validate_test_plan_blocks_missing_required_review_inputs() -> None:
         "test_cases",
         "selector_contract",
     ]
+
+
+def test_prepare_existing_script_execution_returns_reviewable_payload() -> None:
+    result = prepare_existing_script_execution("tests/assets/runner_pass_case.py")
+
+    assert result["script_path"] == "tests/assets/runner_pass_case.py"
+    assert result["generation_mode"] == "existing_script"
+    assert result["execution_readiness"] == "review_required"
 
 
 def test_analyze_information_needs_adds_history_and_bug_context_for_task_text() -> None:

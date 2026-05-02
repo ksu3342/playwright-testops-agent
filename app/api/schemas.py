@@ -23,6 +23,7 @@ class ReportRequest(BaseModel):
 
 class AgentRunRequest(BaseModel):
     input_path: Optional[str] = None
+    script_path: Optional[str] = None
     task_text: Optional[str] = None
     target_url: Optional[str] = None
     module: Optional[str] = None
@@ -32,9 +33,9 @@ class AgentRunRequest(BaseModel):
     planning_backend: str = "deterministic"
 
     @model_validator(mode="after")
-    def require_input_path_or_task_text(self) -> "AgentRunRequest":
-        if not self.input_path and not (self.task_text and self.task_text.strip()):
-            raise ValueError("Provide either input_path or non-empty task_text.")
+    def require_input_path_task_text_or_script_path(self) -> "AgentRunRequest":
+        if not self.input_path and not self.script_path and not (self.task_text and self.task_text.strip()):
+            raise ValueError("Provide input_path, script_path, or non-empty task_text.")
         return self
 
 

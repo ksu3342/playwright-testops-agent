@@ -530,6 +530,23 @@ def validate_test_plan(test_plan: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def prepare_existing_script_execution(script_path: str) -> dict[str, Any]:
+    resolved_script_path = _resolve_repo_path(script_path)
+    if not resolved_script_path.is_file():
+        raise FileNotFoundError(f"Target script was not found: {_relative_to_repo(resolved_script_path)}")
+    if resolved_script_path.suffix.lower() != ".py":
+        raise ValueError(f"Existing-script agent runs require a Python test script: {_relative_to_repo(resolved_script_path)}")
+
+    return {
+        "script_path": _relative_to_repo(resolved_script_path),
+        "generation_mode": "existing_script",
+        "execution_readiness": "review_required",
+        "test_point_count": 0,
+        "context_source_paths": [],
+        "reason": "Existing script will be executed through the controlled run_test tool after approval.",
+    }
+
+
 def generate_test(input_path: str, testing_context: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     document = parse_prd(input_path)
     test_points = extract_test_points(document)
@@ -608,6 +625,7 @@ TOOL_REGISTRY = {
     "retrieve_testing_context": retrieve_testing_context,
     "draft_test_plan": draft_test_plan,
     "validate_test_plan": validate_test_plan,
+    "prepare_existing_script_execution": prepare_existing_script_execution,
     "generate_test": generate_test,
     "run_test": run_test,
     "create_report": create_report,
@@ -624,6 +642,7 @@ TOOL_DESCRIPTIONS = {
     "retrieve_testing_context": "Retrieve local testing context from product docs, contracts, runs, and reports.",
     "draft_test_plan": "Draft a reviewable test plan from requirements and retrieved context.",
     "validate_test_plan": "Validate that a test plan has enough reviewed inputs for generation.",
+    "prepare_existing_script_execution": "Validate an existing test script and prepare it for controlled execution.",
     "generate_test": "Generate a Playwright pytest script through the controlled generator.",
     "run_test": "Run a generated or fixture pytest script and collect execution artifacts.",
     "create_report": "Create a defect report draft for a failed run.",

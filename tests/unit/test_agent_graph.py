@@ -253,6 +253,79 @@ def test_langgraph_blocks_invalid_plan_before_generation(monkeypatch) -> None:
     ]
 
 
+def test_langgraph_existing_script_path_runs_without_requirement_planning(monkeypatch) -> None:
+    def fake_run_test(input_path: str) -> dict[str, object]:
+        assert input_path == "tests/assets/runner_pass_case.py"
+        return {
+            "run_id": "fake_existing_script_run",
+            "run_dir": "data/runs/fake_existing_script_run",
+            "status": "passed",
+            "artifact_paths": {"summary": "data/runs/fake_existing_script_run/summary.json"},
+        }
+
+    def fake_collect_run_evidence(run_reference: str) -> dict[str, object]:
+        return {
+            "queried_tools": ["get_run_summary", "get_artifacts"],
+            "run_summary": {"run_id": "fake_existing_script_run", "run_dir": run_reference, "summary": {"status": "passed"}},
+            "queried_artifacts": {"run_id": "fake_existing_script_run", "run_dir": run_reference, "artifact_paths": {}},
+        }
+
+    monkeypatch.setattr(graph.tools, "run_test", fake_run_test)
+    monkeypatch.setattr(graph.tools, "collect_run_evidence", fake_collect_run_evidence)
+
+    tracer = AgentRunTracer.create(
+        {
+            "input_path": "tests/assets/runner_pass_case.py",
+            "script_path": "tests/assets/runner_pass_case.py",
+        },
+        agent_run_id="unit_graph_existing_script_path",
+    )
+    state = invoke_agent_graph(
+        "tests/assets/runner_pass_case.py",
+        tracer,
+        script_path="tests/assets/runner_pass_case.py",
+    )
+
+    assert state["final_status"] == "passed"
+    assert state["final_output"]["script_path"] == "tests/assets/runner_pass_case.py"
+    assert state["final_output"]["test_plan"] is None
+
+    trace = _load_trace(state["final_output"]["trace_path"])
+    assert [call["tool_name"] for call in trace["tool_calls"]] == [
+        "prepare_existing_script_execution",
+        "run_test",
+        "collect_run_evidence",
+    ]
+
+
+def test_langgraph_existing_script_manual_mode_pauses_before_execution(monkeypatch) -> None:
+    def fail_run_test(input_path: str) -> dict[str, object]:
+        raise AssertionError("run_test should not run before execution approval")
+
+    monkeypatch.setattr(graph.tools, "run_test", fail_run_test)
+
+    tracer = AgentRunTracer.create(
+        {
+            "input_path": "tests/assets/runner_pass_case.py",
+            "script_path": "tests/assets/runner_pass_case.py",
+        },
+        agent_run_id="unit_graph_existing_script_manual_pause",
+    )
+    state = invoke_agent_graph(
+        "tests/assets/runner_pass_case.py",
+        tracer,
+        approval_mode="manual",
+        script_path="tests/assets/runner_pass_case.py",
+    )
+
+    assert state["final_status"] == "waiting_for_execution_approval"
+    assert state["pending_approval"]["gate"] == "execution"
+    assert state["final_output"]["script_path"] == "tests/assets/runner_pass_case.py"
+
+    trace = _load_trace(state["final_output"]["trace_path"])
+    assert [call["tool_name"] for call in trace["tool_calls"]] == ["prepare_existing_script_execution"]
+
+
 def test_langgraph_manual_mode_pauses_for_report_review_after_failed_run(monkeypatch) -> None:
     _patch_passed_plan_tools(monkeypatch)
 
