@@ -2,7 +2,7 @@
 
 [简体中文](./README.md)
 
-A Playwright TestOps workflow backend that turns requirement inputs into generated, runnable, traceable, and reportable test evidence chains.
+A local file-backed TestOps Agent workflow prototype that turns testing tasks into retrievable, reviewable, executable, and traceable test evidence.
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](./app/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Routes-009688?logo=fastapi&logoColor=white)](./app/api/main.py)
@@ -23,16 +23,43 @@ For the fuller Chinese walkthrough, see [README.zh-CN.md](./README.zh-CN.md).
 
 ## What Real Testing Problem This Repo Handles
 
-Test inputs often start as PRDs, rough notes, or half-structured requirement text. This repo turns those inputs into three inspectable outputs: conservative Playwright scaffolds, recorded run artifacts, and draft bug reports derived from run results. The emphasis is not on platform language. The emphasis is on keeping the workflow concrete, inspectable, and easy to hand back to a human tester.
+Test inputs often start as PRDs, rough notes, or half-structured requirement text. This repo turns those inputs into retrieved context, reviewable test plans, conservative Playwright scaffolds, recorded run artifacts, and draft bug reports derived from failed runs. The emphasis is not on platform language. The emphasis is on keeping the workflow concrete, inspectable, and easy to hand back to a human tester.
+
+## Current Agent Path
+
+```text
+task_text / PRD
+-> retrieve testing context
+-> draft test_plan.json
+-> human approval
+-> generate Playwright test
+-> run
+-> classify passed / failed / blocked
+-> create report draft or archive
+-> save trace.json / decision_trace
+```
 
 ## What Is Already Implemented
 
-- After an optional `normalize` step, the implemented flow is `parse -> extract -> generate -> run -> report`.
-- The CLI exposes `normalize`, `parse`, `generate`, `run`, `report`, plus Agent demo commands: `agent-run`, `agent-approve`, and `agent-trace`.
-- FastAPI already exposes health checks, pipeline execution, run lookup, and artifact lookup.
-- Agent run endpoints now accept `input_path`, `task_text`, or `script_path`; record traces; analyze information needs; pause for human approval; use local file-backed KB ingest/search with an optional LangChain Core local retriever adapter; and support optional LLM-assisted test-plan drafting with deterministic guardrails.
+- Agent runs accept `input_path`, `task_text`, or `script_path`; record traces; analyze information needs; retrieve testing context; persist `test_plan.json`; and pause or stop through human approval gates.
+- Approval gates cover approve / reject / `resume_state` semantics; traces save `trace.json`, `decision_trace[]`, `final_status`, and `trace.status`.
+- Requirement-backed generation uses `generate_test_from_plan` with the approved test plan instead of bypassing the reviewed plan.
+- KB retrieval is file-backed and covered by retrieval quality evals; optional `langchain_local` is a LangChain Core local adapter, not a vector database.
+- The local demo web target, selector contract, test data contract, generated login test, runner artifacts, and failed-run report draft all have source or test evidence.
+- The CLI exposes `normalize`, `parse`, `generate`, `run`, `report`, plus Agent commands: `agent-run`, `agent-approve`, and `agent-trace`.
+- FastAPI is a thin wrapper over the same Python functions and exposes agent-runs, KB search, run lookup, and artifact lookup.
 - Generated scaffolds, run summaries, and report drafts are written to `generated/tests/`, `data/runs/`, and `generated/reports/` at runtime. Those outputs are reproducible locally but are not committed as fixed public samples.
-- The repo already includes [Docker packaging](./Dockerfile), [docker-compose.yml](./docker-compose.yml), and [API integration tests](./tests/integration/test_api.py).
+- The repo includes [Docker packaging](./Dockerfile), [docker-compose.yml](./docker-compose.yml), GitHub Actions CI, RAG retrieval evals, and an Agent golden demo.
+
+## Underlying Deterministic Toolchain
+
+The Agent path calls controlled tools instead of editing files directly:
+
+```text
+normalize -> parse -> extract -> generate -> run -> report
+```
+
+This toolchain still works through CLI / API on its own; inside the Agent path, it is the deterministic execution layer behind reviewable nodes.
 
 ## One Real Example
 
@@ -106,11 +133,11 @@ The report path under `generated/reports/` is also a runtime output, not a fixed
 
 - The current implementation remains a `CLI-first TestOps Agent MVP + thin FastAPI wrapper`.
 - Persistence is still file-backed, not Redis-backed, MySQL-backed, or otherwise database-backed.
-- No frontend, authentication layer, multi-agent system, or full testing platform is claimed here.
+- No frontend, authentication layer, multi-agent system, or production testing platform is claimed here.
 - Local KB search is deterministic file retrieval. The optional `langchain_local` backend is a LangChain Core local `Document` / `BaseRetriever` adapter, not a production vector database, embedding pipeline, or LangChain vector store.
 - Test-plan drafting is deterministic by default. Optional LLM-assisted drafting returns reviewable JSON only; it does not execute tests, choose selectors, or control the browser.
 - Trace persistence is not a LangGraph-native durable checkpoint backend.
-- This is not a queue-backed async execution system or a production-grade platform.
+- This is not an autonomous browser-control agent, a queue-backed async execution system, or a production-grade platform.
 
 ## What run_id Now Proves
 
@@ -165,12 +192,14 @@ The same Agent flow can be demonstrated through CLI without a server:
 
 ```powershell
 python -m app.main agent-run --task "Verify login happy path with valid credentials." --target-url /login --module login --approval-mode manual
-python -m app.main agent-approve --agent-run-id <agent_run_id> --gate test_plan --decision approved
-python -m app.main agent-approve --agent-run-id <agent_run_id> --gate execution --decision approved
+python -m app.main agent-approve --agent-run-id <agent_run_id> --gate test_plan --decision approve
+python -m app.main agent-approve --agent-run-id <agent_run_id> --gate execution --decision approve
 python -m app.main agent-trace --agent-run-id <agent_run_id> --format summary
 python -m app.main agent-run --script tests/assets/playwright_login_failure_case.py --approval-mode manual --module "playwright failure"
 python -m app.main agent-trace --agent-run-id <agent_run_id> --format markdown
 ```
+
+The CLI and API still accept legacy `approved` / `rejected`, but the approval semantics are described as approve / reject.
 
 For the recommended demo, point to `data/agent_runs/<agent_run_id>/test_plan.json` first, then show the summary trace linking the approved plan, generated script, run summary, and defect draft when a failed run creates one.
 

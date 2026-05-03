@@ -2,7 +2,7 @@
 
 [English](./README.en.md)
 
-一个面向真实测试流程的 Playwright TestOps workflow backend：把需求输入转成可生成、可运行、可追踪、可报告的测试证据链。
+一个本地 file-backed 的 TestOps Agent workflow 原型：将测试任务转为可检索、可审核、可执行、可追踪的测试证据链。
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](./app/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Routes-009688?logo=fastapi&logoColor=white)](./app/api/main.py)
@@ -10,6 +10,43 @@
 [![Pytest](https://img.shields.io/badge/Pytest-Tests-0A9EDC?logo=pytest&logoColor=white)](./tests/)
 [![GitHub Actions CI](https://img.shields.io/badge/GitHub%20Actions-CI-2088FF?logo=github&logoColor=white)](./.github/workflows/ci.yml)
 [![Docker](https://img.shields.io/badge/Docker-Packaged-2496ED?logo=docker&logoColor=white)](./Dockerfile)
+
+## 当前 Agent 主线
+
+```text
+task_text / PRD
+-> retrieve testing context
+-> draft test_plan.json
+-> human approval
+-> generate Playwright test
+-> run
+-> classify passed / failed / blocked
+-> create report draft or archive
+-> save trace.json / decision_trace
+```
+
+## 当前已实现
+
+- local demo web target
+- selector contract and test data contract
+- file-backed KB retrieval and retrieval quality evals
+- approved `test_plan.json` drives Playwright test generation
+- approve / reject / `resume_state` based human approval gate
+- generated login test and runner artifacts
+- failed run report draft
+- `trace.json` / `decision_trace`
+- FastAPI thin wrapper
+- GitHub Actions CI
+
+## 底层确定性工具链
+
+Agent 不直接操作文件，而是调用受控工具链：
+
+```text
+normalize -> parse -> extract -> generate -> run -> report
+```
+
+这条工具链仍然可以作为 CLI / API 单独使用；在 Agent 路径里，它是可审查节点背后的确定性执行能力。
 
 ## Quick Start / 快速开始
 
@@ -19,23 +56,15 @@ python -m pytest tests/integration/test_api.py -q
 python -m uvicorn app.api.main:app --port 8000
 ```
 
-更完整的中文 walkthrough 见 [README.zh-CN.md](./README.zh-CN.md)，英文版说明见 [README.en.md](./README.en.md)。
+更完整的中文 walkthrough 见 [README.zh-CN.md](./README.zh-CN.md)，英文版说明见 [README.en.md](./README.en.md)，固定 Agent demo 见 [docs/agent_demo_walkthrough.md](./docs/agent_demo_walkthrough.md)。
 
 ## 这个项目解决什么真实测试问题
 
-真实测试流程里的输入往往来自 PRD、自由文本笔记或半结构化需求说明。这个仓库把这些输入收口成三类可检查产物：保守的 Playwright 测试脚手架、可追溯的运行产物，以及基于运行结果生成的缺陷报告草稿。重点不是堆平台概念，而是让每一步都有文件证据、状态诚实、便于人工接手。
-
-## 目前已经做成了什么
-
-- 可选 `normalize` 之后，主流程已经能走通 `parse -> extract -> generate -> run -> report`。
-- CLI 已覆盖 `normalize`、`parse`、`generate`、`run`、`report` 这些入口。
-- FastAPI 已提供 health、流程执行、run 查询和 artifact 查询接口。
-- 生成脚手架、运行摘要与报告草稿都会在运行时落盘到 `generated/tests/`、`data/runs/` 和 `generated/reports/`。这些输出可以本地复现，但不会作为固定公开样例提交。
-- 仓库里已经有 [Dockerfile](./Dockerfile)、[docker-compose.yml](./docker-compose.yml) 和 [API integration tests](./tests/integration/test_api.py)。
+真实测试流程里的输入往往来自 PRD、自由文本笔记或半结构化需求说明。这个仓库把这些输入收口成可检索上下文、可审核测试计划、保守的 Playwright 测试脚手架、可追溯运行产物，以及基于失败运行生成的缺陷报告草稿。重点不是堆平台概念，而是让每一步都有文件证据、状态诚实、便于人工接手。
 
 ## 一个真实样例
 
-下面的样例刻意改成“命令可复现”而不是“仓库里已有固定产物可点开”。公开 README 只链接已提交的源码、测试、contract 和输入 PRD。`generated/tests/`、`data/runs/`、`generated/reports/` 下的内容属于运行时产物，需要你本地生成。
+下面的样例刻意改成“命令可复现”而不是“仓库里已有固定产物可点开”。公开 README 只链接已提交的源码、测试、contract、docs 和输入 PRD。`generated/tests/`、`data/runs/`、`generated/reports/` 下的内容属于运行时产物，需要你本地生成。
 
 ### 样例 A：PRD -> generated login test -> 本地运行
 
@@ -78,68 +107,31 @@ python -m app.main report --input data/runs/<run_id>
 
 ## 工程证据
 
-- [app/core/generator.py](./app/core/generator.py)、[app/core/runner.py](./app/core/runner.py)、[app/core/selector_contract.py](./app/core/selector_contract.py) 实现了生成、运行状态判定和 selector contract 加载。
+- [app/agent/tools.py](./app/agent/tools.py)、[app/agent/graph.py](./app/agent/graph.py)、[app/agent/tracer.py](./app/agent/tracer.py) 实现 Agent tools、workflow graph、trace / resume_state。
+- [app/rag/retriever.py](./app/rag/retriever.py)、[tests/evals/test_rag_retrieval_quality.py](./tests/evals/test_rag_retrieval_quality.py) 覆盖 file-backed retrieval 和 retrieval quality eval。
 - [data/contracts/demo_app_selectors.json](./data/contracts/demo_app_selectors.json) 与 [data/contracts/demo_app_test_data.json](./data/contracts/demo_app_test_data.json) 让 selector 和 fixture 来源保持 file-backed。
 - [demo_app/main.py](./demo_app/main.py) 是 executable login flow 使用的本地 demo target。
-- [tests/unit/test_generator.py](./tests/unit/test_generator.py)、[tests/unit/test_runner.py](./tests/unit/test_runner.py)、[tests/demo/test_demo_app.py](./tests/demo/test_demo_app.py) 验证 generator、runner 和 demo app 行为。
-- [tests/integration/test_api.py](./tests/integration/test_api.py) 与 [tests/integration/test_pipeline.py](./tests/integration/test_pipeline.py) 覆盖 API 和 pipeline 层集成路径。
-
-## 为什么这样设计
-
-- 当前实现仍然是 CLI-first，FastAPI 层只是对同一套 Python 核心函数的轻量包装。
-- `normalize` 被刻意限定为可选前置步骤；测试计划默认 deterministic，可选 `planning_backend=llm_assisted` 只生成可审核 JSON，不执行测试。
-- 真正的确定性核心流程保持为 `parse -> extract -> generate -> run -> report`，便于解释和验证。
-- 运行产物和报告继续直接落盘，避免为了这个仓库的当前范围引入额外基础设施。
-- `/api/v1/run` 仍然保持同步执行，run 状态和 artifact 更容易核对。
+- [docs/agent_demo_walkthrough.md](./docs/agent_demo_walkthrough.md) 是固定 golden demo，覆盖 task text、approval、plan-driven generation、run evidence、report draft 和 trace review。
+- [tests/integration/test_agent_golden_demo.py](./tests/integration/test_agent_golden_demo.py)、[tests/integration/test_api.py](./tests/integration/test_api.py)、[tests/integration/test_pipeline.py](./tests/integration/test_pipeline.py) 覆盖 Agent、API 和 pipeline 层集成路径。
 
 ## 范围与边界
 
 - 当前实现仍然是 `CLI-first TestOps Agent MVP + thin FastAPI wrapper`。
 - 当前持久化仍然是文件系统，不是 Redis、MySQL 或其他数据库驱动的平台。
-- 这里没有前端、认证层、多 Agent 编排或完整测试平台的声称。
-- KB 检索默认是 deterministic file-backed；可选 `langchain_local` 只是 LangChain Core `Document` / `BaseRetriever` 本地适配层，不是生产级向量库或 embedding pipeline。
-- 可选 LLM-assisted planning 不代表模型控制浏览器、选择 selector 或自动发布缺陷。
-- 这也不是队列驱动的异步执行系统或生产级平台。
-
-## run_id 现在能证明什么
-
-每个 run 产生的 `run_id` 在 `data/runs/<run_id>/summary.json` 中记录了完整证据链：
-
-- `lineage.source_requirement`: 输入的 PRD 文件路径（如 `data/inputs/sample_prd_login.md`）
-- `lineage.generated_script`: 生成的测试脚本路径（如 `generated/tests/test_login_generated.py`）
-- `artifact_paths`: command.txt、stdout.txt、stderr.txt、summary.json 的路径
-- `artifact_paths.screenshot`: Playwright 失败时的截图路径（如果有）
-- `report_path`: bug report 的路径（如果生成了）
-
-通过 API 查询：
-
-```bash
-# 查询 run 详情
-GET /api/v1/runs/{run_id}
-
-# 查询 artifacts
-GET /api/v1/runs/{run_id}/artifacts
-```
-
-响应中会包含 `lineage`、`artifact_paths` 和 `report_path` 字段。
+- 当前 retrieval 是 deterministic file-backed；可选 `langchain_local` 只是 LangChain Core `Document` / `BaseRetriever` 本地适配层，不是向量数据库或 embedding pipeline。
+- 当前 checkpoint 是 `trace.json + resume_state`，不是 LangGraph-native durable execution。
+- 可选 LLM-assisted planning 只生成可审核 JSON；不执行测试、不选择 selector、不控制浏览器、不自动发布缺陷。
+- 这里没有前端、认证层、多 Agent 编排、队列 worker 或 autonomous browser-control agent 的声称。
 
 ## CI 验证
 
-[.github/workflows/ci.yml](./.github/workflows/ci.yml) 在每次 push 和 PR 到 main 时运行：
-
-- 安装 core 和 e2e 依赖
-- 安装 Playwright Chromium
-- 运行 demo app tests
-- 运行 unit tests
-- 运行 integration tests
-- 生成 login test
-- 运行 generated login test
-- 通过 CLI runner 运行 generated login test
+[.github/workflows/ci.yml](./.github/workflows/ci.yml) 在每次 push 和 PR 到 main 时运行 demo app tests、unit tests、integration tests、RAG retrieval evals、Agent golden demo、generated login test 和 CLI runner 验证。
 
 ## 进一步阅读
 
 - 英文版说明：[README.en.md](./README.en.md)
 - 更完整的中文 walkthrough：[README.zh-CN.md](./README.zh-CN.md)
+- Agent golden demo：[docs/agent_demo_walkthrough.md](./docs/agent_demo_walkthrough.md)
 - 技术规格：[SPEC.md](./SPEC.md)
 - 历史路线图：[TASKS.md](./TASKS.md)
 - 许可证：[LICENSE](./LICENSE)

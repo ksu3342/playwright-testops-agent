@@ -2,7 +2,7 @@
 
 [English](./README.en.md) | [默认首页](./README.md)
 
-一个面向真实测试流程的 Playwright 工作流项目：把需求说明收口为可检查的测试脚手架、本地运行记录和缺陷报告草稿。
+一个本地 file-backed 的 TestOps Agent workflow 原型：将测试任务转为可检索、可审核、可执行、可追踪的测试证据链。
 
 [![Python Backend](https://img.shields.io/badge/Python-Backend-3776AB?logo=python&logoColor=white)](./app/core/)
 [![FastAPI Routes](https://img.shields.io/badge/FastAPI-Routes-009688?logo=fastapi&logoColor=white)](./app/api/main.py)
@@ -13,16 +13,43 @@
 
 ## 这个项目解决什么真实测试问题
 
-真实测试流程里的输入往往来自 PRD、自由文本笔记或半结构化需求说明。这个仓库把这些输入收口成三类可检查产物：保守的 Playwright 测试脚手架、可追溯的运行产物，以及基于运行结果生成的缺陷报告草稿。重点不是堆平台概念，而是让每一步都有文件证据、状态诚实、便于人工接手。
+真实测试流程里的输入往往来自 PRD、自由文本笔记或半结构化需求说明。这个仓库把这些输入收口成可检索上下文、可审核测试计划、保守的 Playwright 测试脚手架、可追溯运行产物，以及基于失败运行生成的缺陷报告草稿。重点不是堆平台概念，而是让每一步都有文件证据、状态诚实、便于人工接手。
+
+## 当前 Agent 主线
+
+```text
+task_text / PRD
+-> retrieve testing context
+-> draft test_plan.json
+-> human approval
+-> generate Playwright test
+-> run
+-> classify passed / failed / blocked
+-> create report draft or archive
+-> save trace.json / decision_trace
+```
 
 ## 当前已经做成什么
 
-- 可选 `normalize` 之后，主流程已经能走通 `parse -> extract -> generate -> run -> report`。
-- CLI 主入口已经覆盖 `normalize`、`parse`、`generate`、`run`、`report`。
-- 轻量 FastAPI 包装层直接复用 Python 核心函数，提供 health、流程执行、run 查询与 artifact 查询接口。
-- Agent run 接口已经支持 `input_path`、`task_text` 或 `script_path`，能记录 trace、分析信息需求、支持人工审批节点，并提供本地 file-backed KB ingest/search；也可以选择 LangChain Core 本地 retriever adapter 和可选 LLM-assisted test-plan drafting。
+- Agent run 接口已经支持 `input_path`、`task_text` 或 `script_path`，能记录 trace、分析信息需求、检索测试上下文、产出 `test_plan.json`，并通过人工审批节点继续或停止。
+- 审批 gate 已覆盖 approve / reject / `resume_state` 语义；trace 中保存 `trace.json`、`decision_trace[]`、`final_status` 与 `trace.status`。
+- 需求输入的生成路径会通过 `generate_test_from_plan` 消费已审核测试计划，而不是绕过 plan 重新隐式生成。
+- 本地 KB 检索是 file-backed，并已有 retrieval quality evals；可选 `langchain_local` 是 LangChain Core 本地 adapter，不是向量库。
+- 本地 demo web target、selector contract、test data contract、generated login test、runner artifacts、failed run report draft 都有源码或测试证据。
+- CLI 主入口覆盖 `normalize`、`parse`、`generate`、`run`、`report`，并提供 `agent-run`、`agent-approve`、`agent-trace`。
+- 轻量 FastAPI 包装层直接复用 Python 核心函数，提供 agent-runs、KB search、run 查询与 artifact 查询接口。
 - 生成脚手架、运行摘要与报告草稿都会在运行时落盘到 `generated/tests/`、`data/runs/` 和 `generated/reports/`。这些输出可以本地复现，但不会作为固定公开样例提交。
-- 仓库里已经有 Docker 打包入口、compose 配置和 API 集成测试。
+- 仓库里已经有 Docker 打包入口、compose 配置、GitHub Actions CI、RAG retrieval evals 和 Agent golden demo。
+
+## 底层确定性工具链
+
+Agent path 背后仍然是受控工具链：
+
+```text
+normalize -> parse -> extract -> generate -> run -> report
+```
+
+这条工具链可以作为 CLI / API 单独调用；在 Agent 主线里，它是被 Agent tools 调用的确定性执行能力。
 
 ## 一个真实样例
 
@@ -92,23 +119,24 @@ python -m app.main report --input data/runs/<run_id>
 
 ## 核心流程
 
-```mermaid
-flowchart LR
-A["Free-text Notes / PRD"] --> B["normalize (optional)"]
-B --> C["parse"]
-C --> D["extract"]
-D --> E["generate"]
-E --> F["run"]
-F --> G["report"]
+Agent 主线：
 
-F --> H["data/runs"]
-G --> I["generated/reports"]
+```text
+task_text / PRD
+-> retrieve testing context
+-> draft test_plan.json
+-> human approval
+-> generate Playwright test
+-> run
+-> classify passed / failed / blocked
+-> create report draft or archive
+-> save trace.json / decision_trace
+```
 
-J["CLI / FastAPI"] --> B
-J --> C
-J --> E
-J --> F
-J --> G
+底层确定性工具链：
+
+```text
+normalize -> parse -> extract -> generate -> run -> report
 ```
 
 ## 当前 API 能力
@@ -359,8 +387,10 @@ curl.exe "http://127.0.0.1:8000/api/v1/agent-runs?final_status=passed&module=log
 ```powershell
 curl.exe -X POST "http://127.0.0.1:8000/api/v1/agent-runs/<agent_run_id>/approve" `
   -H "Content-Type: application/json" `
-  -d '{"gate":"test_plan","decision":"approved","reviewer":"local"}'
+  -d '{"gate":"test_plan","decision":"approve","reviewer":"local"}'
 ```
+
+当前 CLI / API 也兼容旧值 `approved` / `rejected`，但 trace 中的 approval 语义按 approve / reject 解释。
 
 写入本地 KB 索引：
 
@@ -393,9 +423,13 @@ docker compose up --build
 ## 边界 / 不做什么
 
 - 不是多 Agent 平台
-- 不是生产级编排系统
+- 不是生产测试平台或通用编排系统
+- 不是 autonomous browser-control agent
 - 不是队列驱动的异步执行服务
 - 不是数据库驱动的测试平台
+- 不是向量数据库 RAG 或 embedding pipeline
+- 不是 LangGraph-native durable execution
+- 不声称模型自动选择 selector、控制浏览器或发布缺陷
 
 ## CI 验证
 
@@ -406,6 +440,8 @@ docker compose up --build
 - 运行 demo app tests
 - 运行 unit tests
 - 运行 integration tests
+- 运行 RAG retrieval evals
+- 运行 Agent golden demo
 - 生成 login test
 - 运行 generated login test
 - 通过 CLI runner 运行 generated login test
