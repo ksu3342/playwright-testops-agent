@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar
 
+from app.agent.status import ApprovalDecision, TraceLifecycleStatus, normalize_approval_decision
 from app.core.collector import REPO_ROOT
 
 
@@ -59,7 +60,7 @@ class AgentRunTracer:
         start_time = _utc_now().isoformat()
         self.trace: dict[str, Any] = {
             "agent_run_id": agent_run_id,
-            "status": "running",
+            "status": TraceLifecycleStatus.RUNNING.value,
             "final_status": None,
             "input": _json_safe(initial_input),
             "start_time": start_time,
@@ -105,7 +106,7 @@ class AgentRunTracer:
         self.trace_path.write_text(json.dumps(self.trace, indent=2), encoding="utf-8")
 
     def mark_running(self) -> None:
-        self.trace["status"] = "running"
+        self.trace["status"] = TraceLifecycleStatus.RUNNING.value
         self.trace["error"] = None
         self._write()
 
@@ -120,7 +121,14 @@ class AgentRunTracer:
         self._write()
         return str(artifact_paths["test_plan"])
 
-    def record_decision(self, step: str, status: str, reason: str, next_action: Optional[str]) -> dict[str, Any]:
+    def record_decision(
+        self,
+        step: str,
+        status: str,
+        reason: str,
+        next_action: Optional[str],
+        **metadata: Any,
+    ) -> dict[str, Any]:
         decisions = self.trace.setdefault("decision_trace", [])
         if not isinstance(decisions, list):
             decisions = []
@@ -132,6 +140,9 @@ class AgentRunTracer:
             "reason": str(reason),
             "next_action": next_action,
         }
+        for key, value in metadata.items():
+            if value is not None:
+                decision_payload[key] = _json_safe(value)
         for existing in decisions:
             if not isinstance(existing, dict):
                 continue
@@ -202,12 +213,15 @@ class AgentRunTracer:
 
         for request in requests:
             if isinstance(request, dict) and request.get("gate") == gate and request.get("status") == "pending":
+                request.setdefault("decision", ApprovalDecision.PENDING.value)
+                self._write()
                 return request
 
         request_record = {
             "gate": gate,
             "title": title,
-            "status": "pending",
+            "status": ApprovalDecision.PENDING.value,
+            "decision": ApprovalDecision.PENDING.value,
             "requested_at": _utc_now().isoformat(),
             "decided_at": None,
             "reviewer": None,
@@ -226,13 +240,14 @@ class AgentRunTracer:
         reviewer: Optional[str] = None,
         comment: Optional[str] = None,
     ) -> dict[str, Any]:
-        if decision not in {"approved", "rejected"}:
-            raise ValueError("Approval decision must be either 'approved' or 'rejected'.")
+        normalized_decision = normalize_approval_decision(decision)
+        if normalized_decision == ApprovalDecision.PENDING:
+            raise ValueError("Approval decision must be either 'approve' or 'reject'.")
 
         decided_at = _utc_now().isoformat()
         decision_record = {
             "gate": gate,
-            "decision": decision,
+            "decision": normalized_decision.value,
             "reviewer": reviewer,
             "comment": comment,
             "decided_at": decided_at,
@@ -250,7 +265,8 @@ class AgentRunTracer:
                 if isinstance(request, dict) and request.get("gate") == gate and request.get("status") == "pending":
                     request.update(
                         {
-                            "status": decision,
+                            "status": normalized_decision.value,
+                            "decision": normalized_decision.value,
                             "decided_at": decided_at,
                             "reviewer": reviewer,
                             "comment": comment,
@@ -271,7 +287,9 @@ class AgentRunTracer:
     ) -> dict[str, Any]:
         end = _utc_now()
         start = datetime.fromisoformat(str(self.trace["start_time"]))
-        self.trace["status"] = trace_status or ("completed" if error is None else "failed")
+        self.trace["status"] = trace_status or (
+            TraceLifecycleStatus.COMPLETED.value if error is None else TraceLifecycleStatus.FAILED.value
+        )
         self.trace["final_status"] = final_status
         self.trace["final_output"] = _json_safe(final_output)
         self.trace["end_time"] = end.isoformat()

@@ -6,7 +6,13 @@ from typing import Any, Literal, Optional, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from app.agent import tools
-from app.agent.status import AgentRunStatus, status_from_plan_validation, status_from_run_result
+from app.agent.status import (
+    AgentRunStatus,
+    ApprovalDecision,
+    normalize_approval_decision,
+    status_from_plan_validation,
+    status_from_run_result,
+)
 from app.agent.tracer import AgentRunTracer
 
 
@@ -36,6 +42,8 @@ class AgentGraphState(TypedDict, total=False):
     report_approved: Optional[bool]
     report_exported: Optional[bool]
     pending_approval: Optional[dict[str, Any]]
+    resumed_from: dict[str, Any]
+    approval_decision: str
     final_status: str
     final_output: dict[str, Any]
 
@@ -61,21 +69,48 @@ def _retrieved_context_summary(retrieval_result: Optional[dict[str, Any]]) -> di
 
 def _approval_decision(state: AgentGraphState, gate: str) -> Optional[str]:
     if state.get("approval_mode", "auto") != "manual":
-        return "approved"
+        return ApprovalDecision.APPROVE.value
 
     approvals = state.get("approvals") or {}
     decision = approvals.get(gate)
     if isinstance(decision, dict):
         value = decision.get("decision")
-        return str(value) if value in {"approved", "rejected"} else None
-    if decision in {"approved", "rejected"}:
-        return str(decision)
+        try:
+            normalized = normalize_approval_decision(value)
+        except ValueError:
+            return None
+        return normalized.value if normalized != ApprovalDecision.PENDING else None
+    if decision:
+        try:
+            normalized = normalize_approval_decision(decision)
+        except ValueError:
+            return None
+        return normalized.value if normalized != ApprovalDecision.PENDING else None
     return None
 
 
 def _approval_summary(state: AgentGraphState) -> dict[str, Any]:
     approvals = state.get("approvals")
     return approvals if isinstance(approvals, dict) else {}
+
+
+def _approval_decision_metadata(state: AgentGraphState, gate: str, decision: str) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "approval_gate": gate,
+        "decision": decision,
+        "test_plan_path": state.get("test_plan_path"),
+    }
+    resumed_from = state.get("resumed_from")
+    if isinstance(resumed_from, dict):
+        metadata["resumed_from"] = resumed_from
+
+    approvals = state.get("approvals") or {}
+    approval_record = approvals.get(gate) if isinstance(approvals, dict) else None
+    if isinstance(approval_record, dict):
+        comment = approval_record.get("comment")
+        if comment is not None:
+            metadata["approval_comment"] = comment
+    return metadata
 
 
 def _pending_payload(state: AgentGraphState, gate: str) -> dict[str, Any]:
@@ -148,6 +183,8 @@ def _build_final_output(state: AgentGraphState) -> dict[str, Any]:
         "approval_mode": state.get("approval_mode", "auto"),
         "pending_approval": state.get("pending_approval"),
         "human_approvals": _approval_summary(state),
+        "resumed_from": state.get("resumed_from"),
+        "approval_decision": state.get("approval_decision"),
     }
 
 
@@ -324,21 +361,23 @@ def _test_plan_approval_node(tracer: AgentRunTracer):
             return {"final_status": final_status, "pending_approval": None, "final_output": _build_final_output(next_state)}
 
         decision = _approval_decision(state, "test_plan")
-        if decision == "approved":
+        if decision == ApprovalDecision.APPROVE.value:
             tracer.record_decision(
                 "test_plan_approval",
                 AgentRunStatus.PASSED.value,
                 "Test plan approved or auto approval mode is active.",
                 "generate_test_from_plan",
+                **_approval_decision_metadata(state, "test_plan", ApprovalDecision.APPROVE.value),
             )
             return {"pending_approval": None}
-        if decision == "rejected":
+        if decision == ApprovalDecision.REJECT.value:
             final_status = AgentRunStatus.BLOCKED_PLAN_NOT_APPROVED.value
             tracer.record_decision(
                 "test_plan_approval",
                 final_status,
                 "Human reviewer rejected the generated test plan.",
-                None,
+                "revise_test_plan",
+                **_approval_decision_metadata(state, "test_plan", ApprovalDecision.REJECT.value),
             )
             next_state = {**state, "final_status": final_status, "pending_approval": None}
             return {"final_status": final_status, "pending_approval": None, "final_output": _build_final_output(next_state)}
@@ -354,6 +393,7 @@ def _test_plan_approval_node(tracer: AgentRunTracer):
             final_status,
             "Human review is required before generation.",
             "approve_or_reject_test_plan",
+            **_approval_decision_metadata(state, "test_plan", ApprovalDecision.PENDING.value),
         )
         next_state = {**state, "final_status": final_status, "pending_approval": request}
         return {
@@ -397,21 +437,23 @@ def _generate_node(tracer: AgentRunTracer):
 def _execution_approval_node(tracer: AgentRunTracer):
     def execution_approval_node(state: AgentGraphState) -> dict[str, Any]:
         decision = _approval_decision(state, "execution")
-        if decision == "approved":
+        if decision == ApprovalDecision.APPROVE.value:
             tracer.record_decision(
                 "execution_approval",
                 AgentRunStatus.PASSED.value,
                 "Execution approved or auto approval mode is active.",
                 "run_test",
+                **_approval_decision_metadata(state, "execution", ApprovalDecision.APPROVE.value),
             )
             return {"pending_approval": None}
-        if decision == "rejected":
+        if decision == ApprovalDecision.REJECT.value:
             final_status = AgentRunStatus.BLOCKED_PLAN_NOT_APPROVED.value
             tracer.record_decision(
                 "execution_approval",
                 final_status,
                 "Human reviewer rejected test execution.",
-                None,
+                "revise_execution_request",
+                **_approval_decision_metadata(state, "execution", ApprovalDecision.REJECT.value),
             )
             next_state = {**state, "final_status": final_status, "pending_approval": None}
             return {"final_status": final_status, "pending_approval": None, "final_output": _build_final_output(next_state)}
@@ -427,6 +469,7 @@ def _execution_approval_node(tracer: AgentRunTracer):
             final_status,
             "Human review is required before executing the script.",
             "approve_or_reject_execution",
+            **_approval_decision_metadata(state, "execution", ApprovalDecision.PENDING.value),
         )
         next_state = {**state, "final_status": final_status, "pending_approval": request}
         return {
@@ -507,21 +550,23 @@ def _report_node(tracer: AgentRunTracer):
 def _report_approval_node(tracer: AgentRunTracer):
     def report_approval_node(state: AgentGraphState) -> dict[str, Any]:
         decision = _approval_decision(state, "report")
-        if decision == "approved":
+        if decision == ApprovalDecision.APPROVE.value:
             tracer.record_decision(
                 "report_approval",
                 AgentRunStatus.FAILED.value,
                 "Report draft approved or auto approval mode is active.",
                 "finalize",
+                **_approval_decision_metadata(state, "report", ApprovalDecision.APPROVE.value),
             )
             return {"pending_approval": None, "report_approved": True, "report_exported": True}
-        if decision == "rejected":
+        if decision == ApprovalDecision.REJECT.value:
             final_status = AgentRunStatus.BLOCKED_PLAN_NOT_APPROVED.value
             tracer.record_decision(
                 "report_approval",
                 final_status,
                 "Human reviewer rejected the generated report draft.",
-                None,
+                "stop",
+                **_approval_decision_metadata(state, "report", ApprovalDecision.REJECT.value),
             )
             next_state = {
                 **state,
@@ -549,6 +594,7 @@ def _report_approval_node(tracer: AgentRunTracer):
             final_status,
             "Report draft was created and requires human review.",
             "approve_or_reject_report",
+            **_approval_decision_metadata(state, "report", ApprovalDecision.PENDING.value),
         )
         next_state = {
             **state,
@@ -673,6 +719,8 @@ def invoke_agent_graph(
     script_path: Optional[str] = None,
     retrieval_backend: str = "file_lexical",
     planning_backend: str = "deterministic",
+    resumed_from: Optional[dict[str, Any]] = None,
+    approval_decision: Optional[str] = None,
 ) -> AgentGraphState:
     graph = build_agent_graph(tracer)
     initial_state: AgentGraphState = {
@@ -687,6 +735,14 @@ def invoke_agent_graph(
         initial_state["task"] = task
     if script_path:
         initial_state["script_path"] = script_path
+    if resumed_from:
+        initial_state["resumed_from"] = resumed_from
+    if approval_decision:
+        initial_state["approval_decision"] = approval_decision
     if resume_state:
         initial_state.update(resume_state)
+        if resumed_from:
+            initial_state["resumed_from"] = resumed_from
+        if approval_decision:
+            initial_state["approval_decision"] = approval_decision
     return graph.invoke(initial_state)

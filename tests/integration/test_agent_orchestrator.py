@@ -215,7 +215,7 @@ def test_agent_orchestrator_manual_mode_pauses_and_resumes_login_flow() -> None:
     after_plan = continue_agent_run(
         created["agent_run_id"],
         gate="test_plan",
-        decision="approved",
+        decision="approve",
         reviewer="pytest",
         comment="plan ok",
     )
@@ -223,11 +223,15 @@ def test_agent_orchestrator_manual_mode_pauses_and_resumes_login_flow() -> None:
     assert after_plan["final_status"] == "waiting_human_approval"
     assert after_plan["pending_approval"]["gate"] == "execution"
     assert after_plan["script_path"] == "generated/tests/test_login_generated.py"
+    assert after_plan["test_plan_path"] == created["test_plan_path"]
+    assert after_plan["resumed_from"]["pending_gate"] == "test_plan"
+    assert after_plan["resumed_from"]["test_plan_path"] == created["test_plan_path"]
+    assert after_plan["approval_decision"] == "approve"
 
     after_execution = continue_agent_run(
         created["agent_run_id"],
         gate="execution",
-        decision="approved",
+        decision="approve",
         reviewer="pytest",
         comment="execute",
     )
@@ -237,9 +241,56 @@ def test_agent_orchestrator_manual_mode_pauses_and_resumes_login_flow() -> None:
 
     trace = _load_trace(after_execution["trace_path"])
     assert trace["status"] == "completed"
-    assert trace["human_approvals"]["test_plan"]["decision"] == "approved"
-    assert trace["human_approvals"]["execution"]["decision"] == "approved"
+    assert trace["human_approvals"]["test_plan"]["decision"] == "approve"
+    assert trace["human_approvals"]["execution"]["decision"] == "approve"
     assert [call["tool_name"] for call in trace["tool_calls"]] == SUCCESS_TOOL_SEQUENCE
+    assert [call["tool_name"] for call in trace["tool_calls"]].count("draft_test_plan") == 1
+    plan_approval_decision = [
+        decision
+        for decision in trace["decision_trace"]
+        if decision["step"] == "test_plan_approval" and decision.get("decision") == "approve"
+    ][0]
+    assert plan_approval_decision["test_plan_path"] == created["test_plan_path"]
+    assert plan_approval_decision["resumed_from"]["pending_gate"] == "test_plan"
+    assert plan_approval_decision["approval_comment"] == "plan ok"
+
+
+def test_agent_orchestrator_manual_plan_reject_stops_without_generation() -> None:
+    created = run_agent_task(
+        "data/inputs/sample_prd_login.md",
+        agent_run_id="manual_orchestrator_login_plan_reject",
+        approval_mode="manual",
+    )
+
+    rejected = continue_agent_run(
+        created["agent_run_id"],
+        gate="test_plan",
+        decision="reject",
+        reviewer="pytest",
+        comment="needs clearer expected result",
+    )
+
+    assert rejected["final_status"] == "blocked_plan_not_approved"
+    assert rejected["script_path"] is None
+    assert rejected["run_id"] is None
+    assert rejected["test_plan_path"] == created["test_plan_path"]
+
+    trace = _load_trace(rejected["trace_path"])
+    assert trace["status"] == "completed"
+    assert trace["human_approvals"]["test_plan"]["decision"] == "reject"
+    assert [call["tool_name"] for call in trace["tool_calls"]] == [
+        "parse_requirement",
+        "analyze_information_needs",
+        "retrieve_testing_context",
+        "draft_test_plan",
+        "validate_test_plan",
+    ]
+    reject_decision = trace["decision_trace"][-1]
+    assert reject_decision["decision"] == "reject"
+    assert reject_decision["approval_gate"] == "test_plan"
+    assert reject_decision["next_action"] == "revise_test_plan"
+    assert reject_decision["test_plan_path"] == created["test_plan_path"]
+    assert reject_decision["resumed_from"]["pending_gate"] == "test_plan"
 
 
 def test_agent_orchestrator_manual_failed_run_approves_report_draft(monkeypatch) -> None:
@@ -326,15 +377,15 @@ def test_agent_orchestrator_manual_failed_run_approves_report_draft(monkeypatch)
     )
     assert created["final_status"] == "waiting_human_approval"
 
-    after_plan = continue_agent_run(created["agent_run_id"], gate="test_plan", decision="approved")
+    after_plan = continue_agent_run(created["agent_run_id"], gate="test_plan", decision="approve")
     assert after_plan["final_status"] == "waiting_human_approval"
 
-    after_execution = continue_agent_run(created["agent_run_id"], gate="execution", decision="approved")
+    after_execution = continue_agent_run(created["agent_run_id"], gate="execution", decision="approve")
     assert after_execution["final_status"] == "report_draft_created"
     assert after_execution["report_draft_path"] == "generated/reports/bug_report_fake_manual_failed_run.md"
     assert after_execution["report_approved"] is False
 
-    after_report = continue_agent_run(created["agent_run_id"], gate="report", decision="approved")
+    after_report = continue_agent_run(created["agent_run_id"], gate="report", decision="approve")
     assert after_report["final_status"] == "failed"
     assert after_report["report_draft_path"] == "generated/reports/bug_report_fake_manual_failed_run.md"
     assert after_report["report_approved"] is True

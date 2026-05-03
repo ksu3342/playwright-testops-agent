@@ -230,6 +230,92 @@ def test_langgraph_manual_mode_pauses_before_generation(monkeypatch) -> None:
     ]
     assert trace["approval_requests"][0]["gate"] == "test_plan"
     assert trace["pending_approval"]["gate"] == "test_plan"
+    assert trace["approval_requests"][0]["decision"] == "pending"
+
+
+def test_langgraph_rejects_test_plan_without_generation(monkeypatch) -> None:
+    _patch_passed_plan_tools(monkeypatch)
+
+    def fail_generate_test_from_plan(input_path: str, test_plan: dict[str, object], testing_context=None) -> dict[str, object]:
+        raise AssertionError("generate_test_from_plan should not run after test plan rejection")
+
+    monkeypatch.setattr(graph.tools, "generate_test_from_plan", fail_generate_test_from_plan)
+
+    tracer = AgentRunTracer.create(
+        {"input_path": "data/inputs/fake_manual_rejected_prd.md"},
+        agent_run_id="unit_graph_manual_plan_reject",
+    )
+    state = invoke_agent_graph(
+        "data/inputs/fake_manual_rejected_prd.md",
+        tracer,
+        approval_mode="manual",
+        approvals={"test_plan": {"decision": "reject", "comment": "missing coverage"}},
+    )
+
+    assert state["final_status"] == "blocked_plan_not_approved"
+    assert state["final_output"]["script_path"] is None
+    assert state["final_output"]["run_id"] is None
+
+    trace = _load_trace(state["final_output"]["trace_path"])
+    assert [call["tool_name"] for call in trace["tool_calls"]] == [
+        "parse_requirement",
+        "analyze_information_needs",
+        "retrieve_testing_context",
+        "draft_test_plan",
+        "validate_test_plan",
+    ]
+    reject_decision = trace["decision_trace"][-1]
+    assert reject_decision["step"] == "test_plan_approval"
+    assert reject_decision["decision"] == "reject"
+    assert reject_decision["approval_gate"] == "test_plan"
+    assert reject_decision["next_action"] == "revise_test_plan"
+    assert reject_decision["approval_comment"] == "missing coverage"
+
+
+def test_langgraph_rejects_execution_without_running_test(monkeypatch) -> None:
+    _patch_passed_plan_tools(monkeypatch)
+
+    def fake_generate_test_from_plan(input_path: str, test_plan: dict[str, object], testing_context=None) -> dict[str, object]:
+        return {"script_path": "generated/tests/fake_rejected_execution.py", "generation_mode": "test_plan", "test_point_count": 1}
+
+    def fail_run_test(input_path: str) -> dict[str, object]:
+        raise AssertionError("run_test should not run after execution rejection")
+
+    monkeypatch.setattr(graph.tools, "generate_test_from_plan", fake_generate_test_from_plan)
+    monkeypatch.setattr(graph.tools, "run_test", fail_run_test)
+
+    tracer = AgentRunTracer.create(
+        {"input_path": "data/inputs/fake_execution_rejected_prd.md"},
+        agent_run_id="unit_graph_manual_execution_reject",
+    )
+    state = invoke_agent_graph(
+        "data/inputs/fake_execution_rejected_prd.md",
+        tracer,
+        approval_mode="manual",
+        approvals={
+            "test_plan": {"decision": "approve"},
+            "execution": {"decision": "reject", "comment": "do not run yet"},
+        },
+    )
+
+    assert state["final_status"] == "blocked_plan_not_approved"
+    assert state["final_output"]["script_path"] == "generated/tests/fake_rejected_execution.py"
+    assert state["final_output"]["run_id"] is None
+
+    trace = _load_trace(state["final_output"]["trace_path"])
+    assert [call["tool_name"] for call in trace["tool_calls"]] == [
+        "parse_requirement",
+        "analyze_information_needs",
+        "retrieve_testing_context",
+        "draft_test_plan",
+        "validate_test_plan",
+        "generate_test_from_plan",
+    ]
+    reject_decision = trace["decision_trace"][-1]
+    assert reject_decision["step"] == "execution_approval"
+    assert reject_decision["decision"] == "reject"
+    assert reject_decision["approval_gate"] == "execution"
+    assert reject_decision["next_action"] == "revise_execution_request"
 
 
 def test_langgraph_blocks_invalid_plan_before_generation(monkeypatch) -> None:
@@ -377,8 +463,8 @@ def test_langgraph_manual_mode_pauses_for_report_review_after_failed_run(monkeyp
         tracer,
         approval_mode="manual",
         approvals={
-            "test_plan": {"decision": "approved"},
-            "execution": {"decision": "approved"},
+            "test_plan": {"decision": "approve"},
+            "execution": {"decision": "approve"},
         },
     )
 

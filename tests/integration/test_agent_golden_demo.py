@@ -62,7 +62,7 @@ def test_golden_demo_login_manual_flow_generates_plan_trace_and_run_summary() ->
         "--gate",
         "test_plan",
         "--decision",
-        "approved",
+        "approve",
         "--reviewer",
         "pytest",
     )
@@ -76,7 +76,7 @@ def test_golden_demo_login_manual_flow_generates_plan_trace_and_run_summary() ->
         "--gate",
         "execution",
         "--decision",
-        "approved",
+        "approve",
         "--reviewer",
         "pytest",
     )
@@ -92,6 +92,8 @@ def test_golden_demo_login_manual_flow_generates_plan_trace_and_run_summary() ->
     assert Path(final_output["test_plan_path"]).exists()
     assert final_output["run_summary"]["summary"]["artifact_paths"]["summary"].endswith("summary.json")
     assert final_output["artifact_paths"]["summary"].endswith("summary.json")
+    assert trace["human_approvals"]["test_plan"]["decision"] == "approve"
+    assert trace["human_approvals"]["execution"]["decision"] == "approve"
 
 
 def test_golden_demo_existing_script_failed_flow_generates_report_draft() -> None:
@@ -146,6 +148,54 @@ def test_golden_demo_existing_script_failed_flow_generates_report_draft() -> Non
         "pytest",
     )
     assert "final_status: failed" in after_report.stdout
+
+
+def test_golden_demo_reject_flow_stops_after_test_plan_review() -> None:
+    agent_run_id = "golden_demo_login_rejected"
+
+    created = _run_cli(
+        "agent-run",
+        "--task",
+        "Verify login happy path with valid credentials.",
+        "--target-url",
+        "/login",
+        "--module",
+        "login",
+        "--approval-mode",
+        "manual",
+        "--agent-run-id",
+        agent_run_id,
+    )
+    assert "final_status: waiting_human_approval" in created.stdout
+
+    rejected = _run_cli(
+        "agent-approve",
+        "--agent-run-id",
+        agent_run_id,
+        "--gate",
+        "test_plan",
+        "--decision",
+        "reject",
+        "--reviewer",
+        "pytest",
+        "--comment",
+        "revise expected result",
+    )
+    assert "final_status: blocked_plan_not_approved" in rejected.stdout
+
+    trace = _load_trace(agent_run_id)
+    final_output = trace["final_output"]
+    assert isinstance(final_output, dict)
+    assert trace["status"] == "completed"
+    assert trace["final_status"] == "blocked_plan_not_approved"
+    assert "generate_test_from_plan" not in _tool_names(trace)
+    assert final_output["script_path"] is None
+    assert final_output["run_id"] is None
+    assert trace["human_approvals"]["test_plan"]["decision"] == "reject"
+    reject_decision = trace["decision_trace"][-1]
+    assert reject_decision["decision"] == "reject"
+    assert reject_decision["next_action"] == "revise_test_plan"
+    assert reject_decision["resumed_from"]["pending_gate"] == "test_plan"
 
 
 def test_golden_demo_search_prd_flow_records_blocked_status_and_trace_artifacts() -> None:

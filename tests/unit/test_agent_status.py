@@ -1,5 +1,9 @@
 from app.agent.status import (
+    AgentBusinessStatus,
+    ApprovalDecision,
     AgentRunStatus,
+    TraceLifecycleStatus,
+    normalize_approval_decision,
     normalize_agent_status,
     status_from_missing_inputs,
     status_from_plan_validation,
@@ -39,3 +43,19 @@ def test_trace_status_uses_lifecycle_status_for_pending_agent_states() -> None:
     assert trace_status_for_final_status(AgentRunStatus.WAITING_HUMAN_APPROVAL) == "waiting_for_approval"
     assert trace_status_for_final_status(AgentRunStatus.REPORT_DRAFT_CREATED) == "waiting_for_approval"
     assert trace_status_for_final_status(AgentRunStatus.PASSED) == "completed"
+
+
+def test_status_domain_enums_separate_business_lifecycle_and_approval_decisions() -> None:
+    assert AgentBusinessStatus.WAITING_HUMAN_APPROVAL.value == "waiting_human_approval"
+    assert TraceLifecycleStatus.WAITING_FOR_APPROVAL.value == "waiting_for_approval"
+    assert ApprovalDecision.PENDING.value == "pending"
+    assert ApprovalDecision.APPROVE.value == "approve"
+    assert ApprovalDecision.REJECT.value == "reject"
+
+
+def test_approval_decision_normalization_accepts_canonical_and_legacy_values() -> None:
+    assert normalize_approval_decision("pending") == ApprovalDecision.PENDING
+    assert normalize_approval_decision("approve") == ApprovalDecision.APPROVE
+    assert normalize_approval_decision("approved") == ApprovalDecision.APPROVE
+    assert normalize_approval_decision("reject") == ApprovalDecision.REJECT
+    assert normalize_approval_decision("rejected") == ApprovalDecision.REJECT

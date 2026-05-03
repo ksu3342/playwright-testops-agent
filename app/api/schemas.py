@@ -43,7 +43,7 @@ class AgentRunRequest(BaseModel):
 
 class AgentApprovalRequest(BaseModel):
     gate: Literal["test_plan", "execution", "report"]
-    decision: Literal["approved", "rejected"]
+    decision: Literal["approve", "reject", "approved", "rejected"]
     reviewer: Optional[str] = None
     comment: Optional[str] = None
 
@@ -183,6 +183,8 @@ class AgentRunResponse(BaseModel):
     approval_mode: Optional[str] = None
     pending_approval: Optional[dict[str, Any]] = None
     human_approvals: dict[str, Any] = Field(default_factory=dict)
+    resumed_from: Optional[dict[str, Any]] = None
+    approval_decision: Optional[str] = None
     error: Optional[str] = None
 
 

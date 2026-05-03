@@ -2,6 +2,8 @@
 
 This walkthrough is the fixed, reproducible proof path for the local file-backed TestOps Agent MVP. It uses deterministic `agent_run_id` values so the trace and plan paths are stable across runs.
 
+This is a file-backed human-in-the-loop MVP. Interrupt and resume state is stored in `trace.json` as `resume_state`; it is not LangGraph-native durable execution and it does not use a database checkpoint.
+
 ## One-Command Verification
 
 Run the golden demo integration test:
@@ -17,6 +19,7 @@ data/agent_runs/golden_demo_login_manual/trace.json
 data/agent_runs/golden_demo_login_manual/test_plan.json
 data/agent_runs/golden_demo_failed_report/trace.json
 data/agent_runs/golden_demo_search_blocked/trace.json
+data/agent_runs/golden_demo_login_rejected/trace.json
 ```
 
 ## Manual Passed Flow
@@ -25,8 +28,8 @@ Run a task-text Agent flow with human approval:
 
 ```powershell
 .\.venv\Scripts\python.exe -m app.main agent-run --task "Verify login happy path with valid credentials." --target-url /login --module login --approval-mode manual --agent-run-id golden_demo_login_manual
-.\.venv\Scripts\python.exe -m app.main agent-approve --agent-run-id golden_demo_login_manual --gate test_plan --decision approved --reviewer demo
-.\.venv\Scripts\python.exe -m app.main agent-approve --agent-run-id golden_demo_login_manual --gate execution --decision approved --reviewer demo
+.\.venv\Scripts\python.exe -m app.main agent-approve --agent-run-id golden_demo_login_manual --gate test_plan --decision approve --reviewer demo
+.\.venv\Scripts\python.exe -m app.main agent-approve --agent-run-id golden_demo_login_manual --gate execution --decision approve --reviewer demo
 .\.venv\Scripts\python.exe -m app.main agent-trace --agent-run-id golden_demo_login_manual --format summary
 ```
 
@@ -34,6 +37,8 @@ Expected proof points:
 
 - `data/agent_runs/golden_demo_login_manual/test_plan.json` exists.
 - `trace.json` contains `retrieve_testing_context`, `draft_test_plan`, `generate_test_from_plan`, `run_test`, and `collect_run_evidence`.
+- `trace.json.resume_state.test_plan_path` and `final_output.test_plan_path` point to the saved plan used after approval.
+- `decision_trace[]` records `decision=approve`, `approval_gate`, `test_plan_path`, `resumed_from`, `reason`, and `next_action`.
 - `final_status` is `passed`.
 - `final_output.artifact_paths.summary` points to the run summary.
 
@@ -56,6 +61,24 @@ Expected proof points:
 - `final_output.artifact_paths.summary`, `stdout`, and `stderr` point to saved run artifacts.
 - After report approval, `final_status` is `failed`.
 
+## Rejected Plan Flow
+
+Run a manual task and reject the generated test plan:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main agent-run --task "Verify login happy path with valid credentials." --target-url /login --module login --approval-mode manual --agent-run-id golden_demo_login_rejected
+.\.venv\Scripts\python.exe -m app.main agent-approve --agent-run-id golden_demo_login_rejected --gate test_plan --decision reject --reviewer demo --comment "revise expected result"
+.\.venv\Scripts\python.exe -m app.main agent-trace --agent-run-id golden_demo_login_rejected --format summary
+```
+
+Expected proof points:
+
+- `final_status` is `blocked_plan_not_approved`.
+- `trace.status` is `completed` because the file-backed Agent run reached a terminal business outcome.
+- `trace.json` does not contain `generate_test_from_plan`, `run_test`, or `create_report`.
+- `human_approvals.test_plan.decision` is `reject`.
+- `decision_trace[]` records `decision=reject`, `reason`, `next_action=revise_test_plan`, and `resumed_from.pending_gate=test_plan`.
+
 ## Blocked Flow
 
 Run the search PRD through the Agent:
@@ -74,7 +97,12 @@ Expected proof points:
 
 ## Status Vocabulary
 
-`trace.status` is the trace lifecycle status, such as `completed` or `waiting_for_approval`.
+`trace.status` is the trace lifecycle status:
+
+- `running`
+- `waiting_for_approval`
+- `completed`
+- `failed`
 
 `final_status` is the Agent business status and is restricted to:
 
@@ -87,3 +115,19 @@ Expected proof points:
 - `waiting_human_approval`
 - `report_draft_created`
 - `environment_error`
+
+Approval decisions are normalized in `trace.json`:
+
+- `pending`
+- `approve`
+- `reject`
+
+CLI/API requests still accept legacy `approved` and `rejected`, but the saved trace uses `approve` and `reject`.
+
+## Unsupported In This MVP
+
+- Editing or responding to a pending approval request.
+- Persistent database checkpointing.
+- LangGraph-native durable execution.
+- Frontend approval UI.
+- Multi-reviewer approval policy.

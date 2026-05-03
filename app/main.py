@@ -93,7 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
     agent_approve_cmd = subparsers.add_parser("agent-approve", help="Approve or reject a pending Agent gate.")
     agent_approve_cmd.add_argument("--agent-run-id", required=True)
     agent_approve_cmd.add_argument("--gate", choices=["test_plan", "execution", "report"], required=True)
-    agent_approve_cmd.add_argument("--decision", choices=["approved", "rejected"], required=True)
+    agent_approve_cmd.add_argument("--decision", choices=["approve", "reject", "approved", "rejected"], required=True)
     agent_approve_cmd.add_argument("--reviewer")
     agent_approve_cmd.add_argument("--comment")
 

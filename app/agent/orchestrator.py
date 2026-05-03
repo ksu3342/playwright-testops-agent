@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from app.agent.graph import ApprovalMode, invoke_agent_graph
-from app.agent.status import trace_status_for_final_status
+from app.agent.status import ApprovalDecision, TraceLifecycleStatus, normalize_approval_decision, trace_status_for_final_status
 from app.agent.tracer import AgentRunTracer
 
 
 APPROVAL_GATES = {"test_plan", "execution", "report"}
-APPROVAL_DECISIONS = {"approved", "rejected"}
+APPROVAL_DECISIONS = {"approve", "reject", "approved", "rejected"}
 
 
 def _retrieved_context_summary(retrieval_result: Optional[dict[str, Any]]) -> dict[str, Any]:
@@ -49,6 +49,8 @@ def _build_final_output(
     approvals: Optional[dict[str, Any]],
     report_approved: Optional[bool],
     report_exported: Optional[bool],
+    resumed_from: Optional[dict[str, Any]] = None,
+    approval_decision: Optional[str] = None,
 ) -> dict[str, Any]:
     generate_result = generate_result or {}
     run_result = run_result or {}
@@ -95,6 +97,8 @@ def _build_final_output(
         "approval_mode": approval_mode,
         "pending_approval": pending_approval,
         "human_approvals": approvals or {},
+        "resumed_from": resumed_from,
+        "approval_decision": approval_decision,
     }
 
 
@@ -134,6 +138,8 @@ def _run_with_tracer(
     script_path: Optional[str] = None,
     retrieval_backend: str = "file_lexical",
     planning_backend: str = "deterministic",
+    resumed_from: Optional[dict[str, Any]] = None,
+    approval_decision: Optional[str] = None,
 ) -> dict[str, Any]:
     trace_path = tracer.trace["artifact_paths"]["trace"]
     approvals = approvals or {}
@@ -150,6 +156,8 @@ def _run_with_tracer(
             script_path=script_path,
             retrieval_backend=retrieval_backend,
             planning_backend=planning_backend,
+            resumed_from=resumed_from,
+            approval_decision=approval_decision,
         )
         final_status = str(graph_state.get("final_status", "environment_error"))
         final_output = graph_state.get("final_output")
@@ -173,6 +181,8 @@ def _run_with_tracer(
                 approvals,
                 graph_state.get("report_approved"),
                 graph_state.get("report_exported"),
+                graph_state.get("resumed_from") if isinstance(graph_state.get("resumed_from"), dict) else resumed_from,
+                graph_state.get("approval_decision") if isinstance(graph_state.get("approval_decision"), str) else approval_decision,
             )
 
         resume_state_payload = _resume_state_from_graph_state(graph_state)
@@ -241,10 +251,13 @@ def continue_agent_run(
     if gate not in APPROVAL_GATES:
         raise ValueError(f"Unknown approval gate: {gate}")
     if decision not in APPROVAL_DECISIONS:
-        raise ValueError("Approval decision must be either 'approved' or 'rejected'.")
+        raise ValueError("Approval decision must be either 'approve' or 'reject'. Legacy 'approved'/'rejected' is also accepted.")
+    normalized_decision = normalize_approval_decision(decision)
+    if normalized_decision == ApprovalDecision.PENDING:
+        raise ValueError("Approval decision must be either 'approve' or 'reject'.")
 
     tracer = AgentRunTracer.resume(agent_run_id)
-    if tracer.trace.get("status") != "waiting_for_approval":
+    if tracer.trace.get("status") != TraceLifecycleStatus.WAITING_FOR_APPROVAL.value:
         raise ValueError(f"Agent run '{agent_run_id}' is not waiting for approval.")
 
     final_output = tracer.trace.get("final_output")
@@ -254,6 +267,12 @@ def continue_agent_run(
     pending_approval = final_output.get("pending_approval")
     if not isinstance(pending_approval, dict) or pending_approval.get("gate") != gate:
         raise ValueError(f"Agent run '{agent_run_id}' is not waiting for gate '{gate}'.")
+    resumed_from = {
+        "trace_status": tracer.trace.get("status"),
+        "final_status": tracer.trace.get("final_status"),
+        "pending_gate": gate,
+        "test_plan_path": final_output.get("test_plan_path"),
+    }
 
     input_payload = tracer.trace.get("input")
     if not isinstance(input_payload, dict) or not isinstance(input_payload.get("input_path"), str):
@@ -271,7 +290,7 @@ def continue_agent_run(
     if not isinstance(script_path, str):
         script_path = None
 
-    tracer.record_approval_decision(gate, decision, reviewer=reviewer, comment=comment)
+    tracer.record_approval_decision(gate, normalized_decision.value, reviewer=reviewer, comment=comment)
 
     approvals = tracer.trace.get("human_approvals")
     if not isinstance(approvals, dict):
@@ -291,4 +310,6 @@ def continue_agent_run(
         script_path=script_path,
         retrieval_backend=retrieval_backend,
         planning_backend=planning_backend,
+        resumed_from=resumed_from,
+        approval_decision=normalized_decision.value,
     )
