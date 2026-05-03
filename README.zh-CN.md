@@ -75,6 +75,7 @@ python -m app.main report --input data/runs/<run_id>
 - [app/rag/langchain_retriever.py](./app/rag/langchain_retriever.py) 使用 LangChain Core `Document` / `BaseRetriever` 接口包装本地 KB documents，同时保留确定性本地评分。
 - [app/agent/tools.py](./app/agent/tools.py) 把受控 workflow 函数作为 Python tools 暴露，并提供 LangChain-compatible `StructuredTool` 导出函数作为接口证据。
 - Agent run 会把审核用测试计划持久化到 `data/agent_runs/<agent_run_id>/test_plan.json`；需求输入的脚本生成会通过 `generate_test_from_plan` 消费已审核计划。
+- [docs/agent_demo_walkthrough.md](./docs/agent_demo_walkthrough.md) 是固定 golden demo，覆盖 task text、approval、plan-driven generation、run evidence、report draft 和 trace review。
 - 可选 `planning_backend=llm_assisted` 只让 planner provider 生成可审核 test plan JSON；脚本生成和执行仍然走受控确定性工具。
 - [tests/unit/test_generator.py](./tests/unit/test_generator.py)、[tests/unit/test_runner.py](./tests/unit/test_runner.py)、[tests/demo/test_demo_app.py](./tests/demo/test_demo_app.py) 验证 generator、runner 和 demo app 行为。
 - [tests/integration/test_api.py](./tests/integration/test_api.py) 与 [tests/integration/test_pipeline.py](./tests/integration/test_pipeline.py) 覆盖 API 和 pipeline 层集成路径。
@@ -136,7 +137,7 @@ API 目前能做什么：
 - 通过 `agent-runs` 保存 Agent 决策轨迹，并用审批接口恢复人工确认后的流程
 - 通过本地文件索引做确定性 KB 检索，也可以用 `langchain_local` backend 走 LangChain Core 本地适配层
 - 通过 `task_text` 提交测试任务，并由 Agent 记录 `information_needs` 决定检索哪些上下文类型
-- 保留 `blocked`、`failed`、`environment_error` 这类诚实状态
+- Agent `final_status` 使用集中业务状态：`passed`、`failed`、`blocked_missing_context`、`blocked_selector_missing`、`blocked_test_data_missing`、`blocked_plan_not_approved`、`waiting_human_approval`、`report_draft_created`、`environment_error`；`trace.status` 只表示 trace 生命周期，例如 `completed` 或 `waiting_for_approval`
 
 API 目前不声称什么：
 - 不包含认证

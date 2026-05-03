@@ -557,6 +557,8 @@ def validate_test_plan(test_plan: dict[str, Any]) -> dict[str, Any]:
 
     if not _has_source_type(test_plan, "selector_contract"):
         missing_inputs.append("selector_contract")
+    if test_plan.get("page_url") == "/login" and not _has_source_type(test_plan, "test_data_contract"):
+        missing_inputs.append("test_data_contract")
 
     retrieved_source_paths = test_plan.get("retrieved_source_paths")
     if not isinstance(retrieved_source_paths, list):

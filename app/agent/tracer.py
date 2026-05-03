@@ -68,6 +68,7 @@ class AgentRunTracer:
             "tool_calls": [],
             "approval_requests": [],
             "human_approvals": {},
+            "decision_trace": [],
             "checkpoint_mode": "trace_resume_state",
             "resume_state": None,
             "state_keys": [],
@@ -118,6 +119,33 @@ class AgentRunTracer:
         artifact_paths["test_plan"] = _relative_to_repo(test_plan_path)
         self._write()
         return str(artifact_paths["test_plan"])
+
+    def record_decision(self, step: str, status: str, reason: str, next_action: Optional[str]) -> dict[str, Any]:
+        decisions = self.trace.setdefault("decision_trace", [])
+        if not isinstance(decisions, list):
+            decisions = []
+            self.trace["decision_trace"] = decisions
+
+        decision_payload = {
+            "step": str(step),
+            "status": str(status),
+            "reason": str(reason),
+            "next_action": next_action,
+        }
+        for existing in decisions:
+            if not isinstance(existing, dict):
+                continue
+            if all(existing.get(key) == value for key, value in decision_payload.items()):
+                return existing
+
+        decision_record = {
+            "sequence": len(decisions) + 1,
+            **decision_payload,
+            "recorded_at": _utc_now().isoformat(),
+        }
+        decisions.append(_json_safe(decision_record))
+        self._write()
+        return decision_record
 
     def call_tool(self, tool_name: str, tool_input: dict[str, Any], tool_func: Callable[[], T]) -> T:
         sequence = len(self.trace["tool_calls"]) + 1

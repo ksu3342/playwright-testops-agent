@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from app.agent.graph import ApprovalMode, invoke_agent_graph
+from app.agent.status import trace_status_for_final_status
 from app.agent.tracer import AgentRunTracer
 
 
@@ -120,9 +121,7 @@ def _resume_state_from_graph_state(graph_state: dict[str, Any]) -> dict[str, Any
 
 
 def _trace_status_for(final_status: str) -> str:
-    if final_status.startswith("waiting_for_"):
-        return "waiting_for_approval"
-    return "completed"
+    return trace_status_for_final_status(final_status)
 
 
 def _run_with_tracer(

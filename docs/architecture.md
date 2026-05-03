@@ -32,6 +32,7 @@ This bounded TestOps workflow is designed for portfolio demonstration.
    - Keeps KB search deterministic; it is not a production vector database
    - Uses `trace.json + resume_state` as a local checkpoint record; it is not LangGraph-native durable execution
    - Renders readable decision traces from `trace.json` for CLI demos and human review
+   - Uses centralized Agent `final_status` values while preserving core runner statuses inside run summaries
 
 ## Design principles
 - Deterministic parse/extract/generate/run/report flow
@@ -62,6 +63,9 @@ data/agent_runs/<agent_run_id>/test_plan.json
 
 data/agent_runs/<agent_run_id>/decision_trace.md
   # optional human-readable trace rendered by `python -m app.main agent-trace --format markdown`
+
+docs/agent_demo_walkthrough.md
+  # fixed golden demo commands and expected trace evidence
 
 data/kb/index.json
   # local KB index written by POST /api/v1/kb/ingest

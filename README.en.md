@@ -86,6 +86,7 @@ The report path under `generated/reports/` is also a runtime output, not a fixed
 - [app/agent/tools.py](./app/agent/tools.py) exposes the controlled workflow functions as Python tools and provides a LangChain-compatible `StructuredTool` export for interface evidence.
 - [app/agent/trace_explainer.py](./app/agent/trace_explainer.py) renders `trace.json` as a concise decision trace for CLI demos and review.
 - Agent runs persist the reviewed plan as `data/agent_runs/<agent_run_id>/test_plan.json`; requirement-backed generation uses that approved plan through `generate_test_from_plan`.
+- [docs/agent_demo_walkthrough.md](./docs/agent_demo_walkthrough.md) is the fixed golden demo for task text, approval, plan-driven generation, run evidence, report drafts, and trace review.
 - Optional `planning_backend=llm_assisted` asks a configured planner provider for reviewable test-plan JSON only; generated scripts and execution still go through controlled deterministic tools.
 - [tests/unit/test_generator.py](./tests/unit/test_generator.py), [tests/unit/test_runner.py](./tests/unit/test_runner.py), and [tests/demo/test_demo_app.py](./tests/demo/test_demo_app.py) verify generator, runner, and demo behavior.
 - [tests/integration/test_api.py](./tests/integration/test_api.py) and [tests/integration/test_pipeline.py](./tests/integration/test_pipeline.py) cover the API-facing and pipeline-facing integration paths.
@@ -175,6 +176,8 @@ For the recommended demo, point to `data/agent_runs/<agent_run_id>/test_plan.jso
 
 The list endpoint reads local `data/agent_runs/*/trace.json` files and supports `status`, `final_status`, `module`, and `limit` filters.
 
+Agent `final_status` uses a centralized business-status vocabulary: `passed`, `failed`, `blocked_missing_context`, `blocked_selector_missing`, `blocked_test_data_missing`, `blocked_plan_not_approved`, `waiting_human_approval`, `report_draft_created`, and `environment_error`. `trace.status` remains a lifecycle field such as `completed` or `waiting_for_approval`.
+
 ## CI Verification
 
 [.github/workflows/ci.yml](./.github/workflows/ci.yml) runs on every push and PR to main:
@@ -184,6 +187,8 @@ The list endpoint reads local `data/agent_runs/*/trace.json` files and supports 
 - Run demo app tests
 - Run unit tests
 - Run integration tests
+- Run RAG retrieval evals
+- Run Agent golden demo
 - Generate login test
 - Run generated login test
 - Run generated login test via CLI runner

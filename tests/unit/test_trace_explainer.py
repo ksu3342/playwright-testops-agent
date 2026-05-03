@@ -27,6 +27,15 @@ def _sample_trace() -> dict[str, object]:
             {"sequence": 3, "tool_name": "create_report", "status": "succeeded", "duration_seconds": 0.01},
         ],
         "approval_requests": [{"gate": "execution", "status": "approved", "reviewer": "pytest"}],
+        "decision_trace": [
+            {
+                "sequence": 1,
+                "step": "run_test",
+                "status": "failed",
+                "reason": "Execution ran but reported a failing test.",
+                "next_action": "create_report",
+            }
+        ],
         "artifact_paths": {
             "trace": "data/agent_runs/unit_trace_explainer/trace.json",
             "test_plan": "data/agent_runs/unit_trace_explainer/test_plan.json",
@@ -55,6 +64,8 @@ def test_trace_explainer_renders_summary_json_and_markdown() -> None:
 
     assert "Agent run: unit_trace_explainer" in summary
     assert "prepare_existing_script_execution" in summary
+    assert "Decision trace:" in summary
+    assert "run_test: failed - Execution ran but reported a failing test. -> create_report" in summary
     assert "Test plan: data/agent_runs/unit_trace_explainer/test_plan.json" in summary
     assert "Run summary: data/runs/fake_failed_run/summary.json" in summary
     assert "Report draft: generated/reports/bug_report_fake_failed_run.md" in summary

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Literal, Optional, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
 from app.agent import tools
+from app.agent.status import AgentRunStatus, status_from_plan_validation, status_from_run_result
 from app.agent.tracer import AgentRunTracer
 
 
@@ -202,6 +204,12 @@ def _retrieve_context_node(tracer: AgentRunTracer):
                 backend=retrieval_backend,
             ),
         )
+        tracer.record_decision(
+            "retrieve_context",
+            AgentRunStatus.PASSED.value,
+            f"Retrieved {retrieval_result.get('result_count', 0)} testing context source(s).",
+            "draft_test_plan",
+        )
         return {"retrieval_result": retrieval_result}
 
     return retrieve_context_node
@@ -247,6 +255,12 @@ def _draft_test_plan_node(tracer: AgentRunTracer):
             ),
         )
         test_plan_path = tracer.save_test_plan(test_plan)
+        tracer.record_decision(
+            "draft_test_plan",
+            AgentRunStatus.PASSED.value,
+            f"Saved reviewable test plan to {test_plan_path}.",
+            "validate_test_plan",
+        )
         return {"test_plan": test_plan, "test_plan_path": test_plan_path}
 
     return draft_test_plan_node
@@ -261,6 +275,14 @@ def _validate_test_plan_node(tracer: AgentRunTracer):
             "validate_test_plan",
             {"test_plan": test_plan},
             lambda: tools.validate_test_plan(test_plan),
+        )
+        validation_status = status_from_plan_validation(plan_validation)
+        next_action = "test_plan_approval" if validation_status == AgentRunStatus.PASSED else None
+        tracer.record_decision(
+            "validate_test_plan",
+            validation_status.value,
+            str(plan_validation.get("reason", "test_plan_validation_completed")),
+            next_action,
         )
         return {"plan_validation": plan_validation}
 
@@ -277,6 +299,12 @@ def _prepare_existing_script_node(tracer: AgentRunTracer):
             {"script_path": script_path},
             lambda: tools.prepare_existing_script_execution(script_path),
         )
+        tracer.record_decision(
+            "prepare_existing_script_execution",
+            AgentRunStatus.PASSED.value,
+            f"Prepared existing script for controlled execution: {generate_result['script_path']}.",
+            "execution_approval",
+        )
         return {"generate_result": generate_result, "script_path": generate_result["script_path"]}
 
     return prepare_existing_script_node
@@ -285,24 +313,51 @@ def _prepare_existing_script_node(tracer: AgentRunTracer):
 def _test_plan_approval_node(tracer: AgentRunTracer):
     def test_plan_approval_node(state: AgentGraphState) -> dict[str, Any]:
         if state["plan_validation"].get("status") == "blocked":
-            next_state = {**state, "final_status": "blocked", "pending_approval": None}
-            return {"final_status": "blocked", "pending_approval": None, "final_output": _build_final_output(next_state)}
+            final_status = status_from_plan_validation(state["plan_validation"]).value
+            tracer.record_decision(
+                "test_plan_approval",
+                final_status,
+                str(state["plan_validation"].get("reason", "test_plan_missing_required_inputs")),
+                None,
+            )
+            next_state = {**state, "final_status": final_status, "pending_approval": None}
+            return {"final_status": final_status, "pending_approval": None, "final_output": _build_final_output(next_state)}
 
         decision = _approval_decision(state, "test_plan")
         if decision == "approved":
+            tracer.record_decision(
+                "test_plan_approval",
+                AgentRunStatus.PASSED.value,
+                "Test plan approved or auto approval mode is active.",
+                "generate_test_from_plan",
+            )
             return {"pending_approval": None}
         if decision == "rejected":
-            next_state = {**state, "final_status": "rejected", "pending_approval": None}
-            return {"final_status": "rejected", "pending_approval": None, "final_output": _build_final_output(next_state)}
+            final_status = AgentRunStatus.BLOCKED_PLAN_NOT_APPROVED.value
+            tracer.record_decision(
+                "test_plan_approval",
+                final_status,
+                "Human reviewer rejected the generated test plan.",
+                None,
+            )
+            next_state = {**state, "final_status": final_status, "pending_approval": None}
+            return {"final_status": final_status, "pending_approval": None, "final_output": _build_final_output(next_state)}
 
         request = tracer.request_approval(
             "test_plan",
             "Review generated test plan",
             _pending_payload(state, "test_plan"),
         )
-        next_state = {**state, "final_status": "waiting_for_test_plan_approval", "pending_approval": request}
+        final_status = AgentRunStatus.WAITING_HUMAN_APPROVAL.value
+        tracer.record_decision(
+            "test_plan_approval",
+            final_status,
+            "Human review is required before generation.",
+            "approve_or_reject_test_plan",
+        )
+        next_state = {**state, "final_status": final_status, "pending_approval": request}
         return {
-            "final_status": "waiting_for_test_plan_approval",
+            "final_status": final_status,
             "pending_approval": request,
             "final_output": _build_final_output(next_state),
         }
@@ -328,6 +383,12 @@ def _generate_node(tracer: AgentRunTracer):
             },
             lambda: tools.generate_test_from_plan(input_path, test_plan, testing_context=retrieval_result),
         )
+        tracer.record_decision(
+            "generate_test_from_plan",
+            AgentRunStatus.PASSED.value,
+            f"Generated script from approved test plan: {generate_result.get('script_path')}.",
+            "execution_approval",
+        )
         return {"generate_result": generate_result}
 
     return generate_node
@@ -337,19 +398,39 @@ def _execution_approval_node(tracer: AgentRunTracer):
     def execution_approval_node(state: AgentGraphState) -> dict[str, Any]:
         decision = _approval_decision(state, "execution")
         if decision == "approved":
+            tracer.record_decision(
+                "execution_approval",
+                AgentRunStatus.PASSED.value,
+                "Execution approved or auto approval mode is active.",
+                "run_test",
+            )
             return {"pending_approval": None}
         if decision == "rejected":
-            next_state = {**state, "final_status": "rejected", "pending_approval": None}
-            return {"final_status": "rejected", "pending_approval": None, "final_output": _build_final_output(next_state)}
+            final_status = AgentRunStatus.BLOCKED_PLAN_NOT_APPROVED.value
+            tracer.record_decision(
+                "execution_approval",
+                final_status,
+                "Human reviewer rejected test execution.",
+                None,
+            )
+            next_state = {**state, "final_status": final_status, "pending_approval": None}
+            return {"final_status": final_status, "pending_approval": None, "final_output": _build_final_output(next_state)}
 
         request = tracer.request_approval(
             "execution",
             "Approve generated test execution",
             _pending_payload(state, "execution"),
         )
-        next_state = {**state, "final_status": "waiting_for_execution_approval", "pending_approval": request}
+        final_status = AgentRunStatus.WAITING_HUMAN_APPROVAL.value
+        tracer.record_decision(
+            "execution_approval",
+            final_status,
+            "Human review is required before executing the script.",
+            "approve_or_reject_execution",
+        )
+        next_state = {**state, "final_status": final_status, "pending_approval": request}
         return {
-            "final_status": "waiting_for_execution_approval",
+            "final_status": final_status,
             "pending_approval": request,
             "final_output": _build_final_output(next_state),
         }
@@ -367,6 +448,13 @@ def _run_node(tracer: AgentRunTracer):
             {"input_path": script_path},
             lambda: tools.run_test(script_path),
         )
+        run_status = status_from_run_result(run_result)
+        tracer.record_decision(
+            "run_test",
+            run_status.value,
+            str(run_result.get("reason", "run_completed")),
+            "collect_run_evidence",
+        )
         return {"run_result": run_result}
 
     return run_node
@@ -381,6 +469,14 @@ def _collect_run_evidence_node(tracer: AgentRunTracer):
             "collect_run_evidence",
             {"run_reference": run_dir},
             lambda: tools.collect_run_evidence(run_dir),
+        )
+        run_status = status_from_run_result(state["run_result"])
+        next_action = "create_report" if run_status == AgentRunStatus.FAILED else "finalize"
+        tracer.record_decision(
+            "collect_run_evidence",
+            run_status.value,
+            f"Collected run summary and artifact evidence for {Path(run_dir).name}.",
+            next_action,
         )
         return {"run_evidence": run_evidence}
 
@@ -397,6 +493,12 @@ def _report_node(tracer: AgentRunTracer):
             {"input_path": run_dir},
             lambda: tools.create_report(run_dir),
         )
+        tracer.record_decision(
+            "create_report",
+            AgentRunStatus.REPORT_DRAFT_CREATED.value if report_result.get("generated") else AgentRunStatus.FAILED.value,
+            str(report_result.get("reason", "report_draft_created")),
+            "report_approval",
+        )
         return {"report_result": report_result}
 
     return report_node
@@ -406,17 +508,30 @@ def _report_approval_node(tracer: AgentRunTracer):
     def report_approval_node(state: AgentGraphState) -> dict[str, Any]:
         decision = _approval_decision(state, "report")
         if decision == "approved":
+            tracer.record_decision(
+                "report_approval",
+                AgentRunStatus.FAILED.value,
+                "Report draft approved or auto approval mode is active.",
+                "finalize",
+            )
             return {"pending_approval": None, "report_approved": True, "report_exported": True}
         if decision == "rejected":
+            final_status = AgentRunStatus.BLOCKED_PLAN_NOT_APPROVED.value
+            tracer.record_decision(
+                "report_approval",
+                final_status,
+                "Human reviewer rejected the generated report draft.",
+                None,
+            )
             next_state = {
                 **state,
-                "final_status": "report_rejected",
+                "final_status": final_status,
                 "pending_approval": None,
                 "report_approved": False,
                 "report_exported": False,
             }
             return {
-                "final_status": "report_rejected",
+                "final_status": final_status,
                 "pending_approval": None,
                 "report_approved": False,
                 "report_exported": False,
@@ -428,15 +543,22 @@ def _report_approval_node(tracer: AgentRunTracer):
             "Review generated defect draft",
             _pending_payload(state, "report"),
         )
+        final_status = AgentRunStatus.REPORT_DRAFT_CREATED.value
+        tracer.record_decision(
+            "report_approval",
+            final_status,
+            "Report draft was created and requires human review.",
+            "approve_or_reject_report",
+        )
         next_state = {
             **state,
-            "final_status": "waiting_for_report_approval",
+            "final_status": final_status,
             "pending_approval": request,
             "report_approved": False,
             "report_exported": False,
         }
         return {
-            "final_status": "waiting_for_report_approval",
+            "final_status": final_status,
             "pending_approval": request,
             "report_approved": False,
             "report_exported": False,
@@ -446,15 +568,28 @@ def _report_approval_node(tracer: AgentRunTracer):
     return report_approval_node
 
 
-def _finalize_node(state: AgentGraphState) -> dict[str, Any]:
-    run_result = state.get("run_result") or {}
-    final_status = str(run_result.get("status", state.get("final_status", "environment_error")))
-    next_state = {**state, "final_status": final_status, "pending_approval": None}
-    return {
-        "final_status": final_status,
-        "pending_approval": None,
-        "final_output": _build_final_output(next_state),
-    }
+def _finalize_node(tracer: AgentRunTracer):
+    def finalize_node(state: AgentGraphState) -> dict[str, Any]:
+        run_result = state.get("run_result") or {}
+        final_status = (
+            status_from_run_result(run_result).value
+            if run_result
+            else str(state.get("final_status", AgentRunStatus.ENVIRONMENT_ERROR.value))
+        )
+        tracer.record_decision(
+            "finalize",
+            final_status,
+            "Agent run reached a terminal state.",
+            None,
+        )
+        next_state = {**state, "final_status": final_status, "pending_approval": None}
+        return {
+            "final_status": final_status,
+            "pending_approval": None,
+            "final_output": _build_final_output(next_state),
+        }
+
+    return finalize_node
 
 
 def _route_after_test_plan_approval(state: AgentGraphState) -> ApprovalRoute:
@@ -490,7 +625,7 @@ def build_agent_graph(tracer: AgentRunTracer):
     graph.add_node("collect_run_evidence", _collect_run_evidence_node(tracer))
     graph.add_node("report", _report_node(tracer))
     graph.add_node("report_approval", _report_approval_node(tracer))
-    graph.add_node("finalize", _finalize_node)
+    graph.add_node("finalize", _finalize_node(tracer))
 
     graph.add_edge(START, "route_input")
     graph.add_conditional_edges(

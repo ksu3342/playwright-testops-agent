@@ -1,5 +1,7 @@
 # Demo Walkthrough
 
+For the fixed Agent proof path, use `docs/agent_demo_walkthrough.md`.
+
 Start the local demo app:
 
 ```powershell

@@ -216,7 +216,7 @@ def test_langgraph_manual_mode_pauses_before_generation(monkeypatch) -> None:
     )
     state = invoke_agent_graph("data/inputs/fake_manual_prd.md", tracer, approval_mode="manual")
 
-    assert state["final_status"] == "waiting_for_test_plan_approval"
+    assert state["final_status"] == "waiting_human_approval"
     assert state["pending_approval"]["gate"] == "test_plan"
     assert state["final_output"]["test_plan"]["feature_name"] == "Fake"
 
@@ -255,7 +255,7 @@ def test_langgraph_blocks_invalid_plan_before_generation(monkeypatch) -> None:
     )
     state = invoke_agent_graph("data/inputs/fake_blocked_prd.md", tracer)
 
-    assert state["final_status"] == "blocked"
+    assert state["final_status"] == "blocked_missing_context"
     assert state["final_output"]["plan_validation"]["missing_inputs"] == ["page_url"]
 
     trace = _load_trace(state["final_output"]["trace_path"])
@@ -333,7 +333,7 @@ def test_langgraph_existing_script_manual_mode_pauses_before_execution(monkeypat
         script_path="tests/assets/runner_pass_case.py",
     )
 
-    assert state["final_status"] == "waiting_for_execution_approval"
+    assert state["final_status"] == "waiting_human_approval"
     assert state["pending_approval"]["gate"] == "execution"
     assert state["final_output"]["script_path"] == "tests/assets/runner_pass_case.py"
 
@@ -382,7 +382,7 @@ def test_langgraph_manual_mode_pauses_for_report_review_after_failed_run(monkeyp
         },
     )
 
-    assert state["final_status"] == "waiting_for_report_approval"
+    assert state["final_status"] == "report_draft_created"
     assert state["pending_approval"]["gate"] == "report"
     assert state["final_output"]["report_path"] == "generated/reports/bug_report_fake_failed_run.md"
     assert state["final_output"]["report_draft_path"] == "generated/reports/bug_report_fake_failed_run.md"

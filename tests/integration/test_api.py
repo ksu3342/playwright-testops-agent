@@ -457,7 +457,7 @@ def test_agent_run_endpoint_accepts_llm_assisted_planning_backend(monkeypatch) -
     payload = response.json()
 
     assert response.status_code == 200
-    assert payload["final_status"] == "waiting_for_test_plan_approval"
+    assert payload["final_status"] == "waiting_human_approval"
     assert payload["run_id"] is None
     assert payload["planning_strategy"] == "llm_assisted_reviewable_plan"
     assert payload["planning_backend"] == "llm_assisted"
@@ -523,7 +523,7 @@ def test_agent_run_endpoint_accepts_script_path_for_manual_failed_report_flow() 
     created = create_response.json()
 
     assert create_response.status_code == 200
-    assert created["final_status"] == "waiting_for_execution_approval"
+    assert created["final_status"] == "waiting_human_approval"
     assert created["script_path"] == "tests/assets/playwright_login_failure_case.py"
     assert created["run_id"] is None
     assert created["pending_approval"]["gate"] == "execution"
@@ -535,7 +535,7 @@ def test_agent_run_endpoint_accepts_script_path_for_manual_failed_report_flow() 
     after_execution = execution_response.json()
 
     assert execution_response.status_code == 200
-    assert after_execution["final_status"] == "waiting_for_report_approval"
+    assert after_execution["final_status"] == "report_draft_created"
     assert after_execution["run_status"] == "failed"
     assert after_execution["report_draft_path"].startswith("generated/reports/")
     assert after_execution["artifact_paths"]["screenshot"].endswith("screenshots/login_failure.png")
@@ -604,7 +604,7 @@ def test_agent_run_trace_endpoint_returns_tool_calls() -> None:
 def test_agent_run_manual_approval_flow_pauses_and_resumes() -> None:
     created = _create_manual_agent_run("data/inputs/sample_prd_login.md", retrieval_backend="langchain_local")
 
-    assert created["final_status"] == "waiting_for_test_plan_approval"
+    assert created["final_status"] == "waiting_human_approval"
     assert created["pending_approval"]["gate"] == "test_plan"
     assert created["test_plan"]["feature_name"] == "User Login"
     assert Path(created["test_plan_path"]).exists()
@@ -625,7 +625,7 @@ def test_agent_run_manual_approval_flow_pauses_and_resumes() -> None:
     after_plan = plan_response.json()
 
     assert plan_response.status_code == 200
-    assert after_plan["final_status"] == "waiting_for_execution_approval"
+    assert after_plan["final_status"] == "waiting_human_approval"
     assert after_plan["pending_approval"]["gate"] == "execution"
     assert after_plan["script_path"] == "generated/tests/test_login_generated.py"
     assert after_plan["retrieval_backend"] == "langchain_local"
@@ -677,7 +677,7 @@ def test_agent_run_manual_task_text_flow_uses_approve_alias() -> None:
     created = create_response.json()
 
     assert create_response.status_code == 200
-    assert created["final_status"] == "waiting_for_test_plan_approval"
+    assert created["final_status"] == "waiting_human_approval"
     assert created["task"]["module"] == module
     assert created["pending_approval"]["gate"] == "test_plan"
 
@@ -688,7 +688,7 @@ def test_agent_run_manual_task_text_flow_uses_approve_alias() -> None:
     after_plan = plan_response.json()
 
     assert plan_response.status_code == 200
-    assert after_plan["final_status"] == "waiting_for_execution_approval"
+    assert after_plan["final_status"] == "waiting_human_approval"
 
     execution_response = client.post(
         f"/api/v1/agent-runs/{created['agent_run_id']}/approve",
@@ -718,7 +718,7 @@ def test_agent_run_manual_approve_alias_completes_approval_flow() -> None:
     after_plan = plan_response.json()
 
     assert plan_response.status_code == 200
-    assert after_plan["final_status"] == "waiting_for_execution_approval"
+    assert after_plan["final_status"] == "waiting_human_approval"
     assert after_plan["pending_approval"]["gate"] == "execution"
     assert after_plan["script_path"] == "generated/tests/test_login_generated.py"
 
@@ -755,7 +755,7 @@ def test_agent_run_manual_rejects_plan_without_generation() -> None:
     rejected = reject_response.json()
 
     assert reject_response.status_code == 200
-    assert rejected["final_status"] == "rejected"
+    assert rejected["final_status"] == "blocked_plan_not_approved"
     assert rejected["script_path"] is None
     assert rejected["run_id"] is None
 

@@ -31,7 +31,7 @@ def _load_trace(trace_path: str) -> dict[str, object]:
 def test_agent_orchestrator_records_blocked_search_trace() -> None:
     result = run_agent_task("data/inputs/sample_prd_search.md")
 
-    assert result["final_status"] == "blocked"
+    assert result["final_status"] == "blocked_missing_context"
     assert result["script_path"] == "generated/tests/test_search_generated.py"
     assert result["run_id"]
     assert Path(result["trace_path"]).exists()
@@ -40,7 +40,7 @@ def test_agent_orchestrator_records_blocked_search_trace() -> None:
     tool_names = [call["tool_name"] for call in trace["tool_calls"]]
 
     assert trace["status"] == "completed"
-    assert trace["final_status"] == "blocked"
+    assert trace["final_status"] == "blocked_missing_context"
     assert tool_names == SUCCESS_TOOL_SEQUENCE
     assert trace["final_output"]["run_id"] == result["run_id"]
     assert trace["final_output"]["artifact_paths"]["summary"].endswith("summary.json")
@@ -54,6 +54,7 @@ def test_agent_orchestrator_records_blocked_search_trace() -> None:
     assert trace["final_output"]["retrieval_implementation"] == "deterministic_file_lexical"
     assert trace["final_output"]["planning_backend"] == "deterministic"
     assert trace["final_output"]["planning_implementation"] == "deterministic_test_plan_scaffold"
+    assert trace["decision_trace"][-1]["status"] == "blocked_missing_context"
 
 
 def test_agent_orchestrator_records_passed_login_trace() -> None:
@@ -205,7 +206,7 @@ def test_agent_orchestrator_manual_mode_pauses_and_resumes_login_flow() -> None:
         approval_mode="manual",
     )
 
-    assert created["final_status"] == "waiting_for_test_plan_approval"
+    assert created["final_status"] == "waiting_human_approval"
     assert created["pending_approval"]["gate"] == "test_plan"
     assert created["test_plan"]["feature_name"] == "User Login"
     assert created["test_plan_path"].endswith("/test_plan.json")
@@ -219,7 +220,7 @@ def test_agent_orchestrator_manual_mode_pauses_and_resumes_login_flow() -> None:
         comment="plan ok",
     )
 
-    assert after_plan["final_status"] == "waiting_for_execution_approval"
+    assert after_plan["final_status"] == "waiting_human_approval"
     assert after_plan["pending_approval"]["gate"] == "execution"
     assert after_plan["script_path"] == "generated/tests/test_login_generated.py"
 
@@ -323,13 +324,13 @@ def test_agent_orchestrator_manual_failed_run_approves_report_draft(monkeypatch)
         agent_run_id="manual_orchestrator_failed_report_flow",
         approval_mode="manual",
     )
-    assert created["final_status"] == "waiting_for_test_plan_approval"
+    assert created["final_status"] == "waiting_human_approval"
 
     after_plan = continue_agent_run(created["agent_run_id"], gate="test_plan", decision="approved")
-    assert after_plan["final_status"] == "waiting_for_execution_approval"
+    assert after_plan["final_status"] == "waiting_human_approval"
 
     after_execution = continue_agent_run(created["agent_run_id"], gate="execution", decision="approved")
-    assert after_execution["final_status"] == "waiting_for_report_approval"
+    assert after_execution["final_status"] == "report_draft_created"
     assert after_execution["report_draft_path"] == "generated/reports/bug_report_fake_manual_failed_run.md"
     assert after_execution["report_approved"] is False
 

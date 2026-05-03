@@ -82,6 +82,24 @@ def _approval_lines(trace: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _decision_lines(trace: dict[str, Any]) -> list[str]:
+    decisions = trace.get("decision_trace")
+    if not isinstance(decisions, list):
+        return []
+
+    lines: list[str] = []
+    for decision in decisions:
+        if not isinstance(decision, dict):
+            continue
+        step = decision.get("step", "unknown_step")
+        status = decision.get("status", "unknown")
+        reason = decision.get("reason", "no reason recorded")
+        next_action = decision.get("next_action")
+        suffix = f" -> {next_action}" if next_action else ""
+        lines.append(f"{step}: {status} - {reason}{suffix}")
+    return lines
+
+
 def render_trace_summary(trace: dict[str, Any]) -> str:
     final_output = trace.get("final_output")
     if not isinstance(final_output, dict):
@@ -137,6 +155,11 @@ def render_trace_summary(trace: dict[str, Any]) -> str:
         pending = final_output["pending_approval"]
         if isinstance(pending, dict):
             lines.append(f"Pending approval: {pending.get('gate')}")
+
+    decision_lines = _decision_lines(trace)
+    if decision_lines:
+        lines.append("Decision trace:")
+        lines.extend(f"- {line}" for line in decision_lines)
 
     tool_lines = _tool_call_lines(trace)
     if tool_lines:

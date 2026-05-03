@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import ValidationError
 
 from app.agent.orchestrator import continue_agent_run, run_agent_task
+from app.agent.status import is_agent_status, normalize_agent_status
 from app.agent.tracer import AGENT_RUNS_DIR
 from app.agent.tools import validate_planning_backend
 from app.api.schemas import (
@@ -256,10 +257,14 @@ def _agent_summary_payload(payload: dict[str, object]) -> dict[str, object]:
     if not isinstance(human_approvals, dict):
         human_approvals = {}
 
+    decision_trace = payload.get("decision_trace")
+    if not isinstance(decision_trace, list):
+        decision_trace = []
+
     return {
         "agent_run_id": str(payload.get("agent_run_id", "unknown_agent_run")),
         "status": str(payload.get("status", "unknown")),
-        "final_status": payload.get("final_status"),
+        "final_status": normalize_agent_status(payload.get("final_status")),
         "input": input_payload,
         "start_time": str(payload.get("start_time", "")),
         "end_time": payload.get("end_time"),
@@ -268,6 +273,7 @@ def _agent_summary_payload(payload: dict[str, object]) -> dict[str, object]:
         "artifact_paths": _agent_artifact_paths(payload),
         "approval_requests": approval_requests,
         "human_approvals": human_approvals,
+        "decision_trace": decision_trace,
         "error": payload.get("error"),
     }
 
@@ -288,7 +294,7 @@ def _agent_run_list_item(payload: dict[str, object]) -> dict[str, object]:
     return {
         "agent_run_id": str(payload.get("agent_run_id", "unknown_agent_run")),
         "status": str(payload.get("status", "unknown")),
-        "final_status": payload.get("final_status"),
+        "final_status": normalize_agent_status(payload.get("final_status")),
         "task": task,
         "module": (task or {}).get("module") or final_output.get("module"),
         "start_time": str(payload.get("start_time", "")),
@@ -366,6 +372,9 @@ def list_agent_runs(
     module: Optional[str] = None,
     limit: int = Query(20, ge=1, le=100),
 ) -> AgentRunListResponse:
+    if final_status and not is_agent_status(final_status):
+        raise HTTPException(status_code=400, detail=f"Unsupported agent final_status: {final_status}")
+
     items: list[dict[str, object]] = []
     if not AGENT_RUNS_DIR.is_dir():
         return AgentRunListResponse(agent_runs=[])

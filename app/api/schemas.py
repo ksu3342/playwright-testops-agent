@@ -2,6 +2,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.agent.status import AgentRunStatus
+
 
 class TextInputRequest(BaseModel):
     input_path: Optional[str] = None
@@ -150,7 +152,7 @@ class RunArtifactsResponse(BaseModel):
 
 class AgentRunResponse(BaseModel):
     agent_run_id: str
-    final_status: str
+    final_status: AgentRunStatus
     input_path: Optional[str] = None
     task: Optional[dict[str, Any]] = None
     module: Optional[str] = None
@@ -187,7 +189,7 @@ class AgentRunResponse(BaseModel):
 class AgentRunSummaryResponse(BaseModel):
     agent_run_id: str
     status: str
-    final_status: Optional[str] = None
+    final_status: Optional[AgentRunStatus] = None
     input: dict[str, Any]
     start_time: str
     end_time: Optional[str] = None
@@ -196,6 +198,7 @@ class AgentRunSummaryResponse(BaseModel):
     artifact_paths: dict[str, str]
     approval_requests: list[dict[str, Any]] = Field(default_factory=list)
     human_approvals: dict[str, Any] = Field(default_factory=dict)
+    decision_trace: list[dict[str, Any]] = Field(default_factory=list)
     error: Optional[str] = None
 
 
@@ -206,7 +209,7 @@ class AgentRunTraceResponse(AgentRunSummaryResponse):
 class AgentRunListItemResponse(BaseModel):
     agent_run_id: str
     status: str
-    final_status: Optional[str] = None
+    final_status: Optional[AgentRunStatus] = None
     task: Optional[dict[str, Any]] = None
     module: Optional[str] = None
     start_time: str
