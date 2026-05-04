@@ -8,7 +8,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-Routes-009688?logo=fastapi&logoColor=white)](./app/api/main.py)
 [![Playwright](https://img.shields.io/badge/Playwright-Integration-2EAD33?logo=playwright&logoColor=white)](./app/core/generator.py)
 [![Pytest](https://img.shields.io/badge/Pytest-Tests-0A9EDC?logo=pytest&logoColor=white)](./tests/)
-[![GitHub Actions CI](https://img.shields.io/badge/GitHub%20Actions-CI-2088FF?logo=github&logoColor=white)](./.github/workflows/ci.yml)
+[![GitHub Actions CI](https://github.com/ksu3342/playwright-testops-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/ksu3342/playwright-testops-agent/actions/workflows/ci.yml)
 [![Docker](https://img.shields.io/badge/Docker-Packaged-2496ED?logo=docker&logoColor=white)](./Dockerfile)
 
 ## 当前 Agent 主线

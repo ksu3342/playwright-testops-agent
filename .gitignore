@@ -196,6 +196,7 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+.claude/
 generated/tests/*.py
 generated/tests/*.metadata.json
 generated/reports/*.md
@@ -218,3 +219,4 @@ data/kb/uploaded/*
 # Local session handoff notes
 SESSION_HANDOFF_PHASE_6_5.json
 AGENTS.md
+docs/resume_notes.md
