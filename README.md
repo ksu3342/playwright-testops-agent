@@ -121,6 +121,7 @@ python -m app.main report --input data/runs/<run_id>
 - 当前 retrieval 是 deterministic file-backed；可选 `langchain_local` 只是 LangChain Core `Document` / `BaseRetriever` 本地适配层，不是向量数据库或 embedding pipeline。
 - 当前 checkpoint 是 `trace.json + resume_state`，不是 LangGraph-native durable execution。
 - 可选 LLM-assisted planning 只生成可审核 JSON；不执行测试、不选择 selector、不控制浏览器、不自动发布缺陷。
+- 当前 API 仅用于本地原型演示，不包含认证、执行沙箱、权限隔离或生产级执行安全加固。
 - 这里没有前端、认证层、多 Agent 编排、队列 worker 或 autonomous browser-control agent 的声称。
 
 ## CI 验证

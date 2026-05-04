@@ -169,6 +169,7 @@ API 目前能做什么：
 
 API 目前不声称什么：
 - 不包含认证
+- 不包含执行沙箱、权限隔离或生产级执行安全加固
 - 不包含数据库状态
 - 不包含队列、worker 或异步任务调度
 - 不包含生产级向量数据库、embedding pipeline 或 LangChain vector store；`langchain_local` 只是本地 `Document` / `BaseRetriever` adapter

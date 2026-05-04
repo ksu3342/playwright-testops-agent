@@ -133,6 +133,7 @@ The report path under `generated/reports/` is also a runtime output, not a fixed
 
 - The current implementation remains a `CLI-first TestOps Agent MVP + thin FastAPI wrapper`.
 - Persistence is still file-backed, not Redis-backed, MySQL-backed, or otherwise database-backed.
+- The API is intended for local prototype demos only; it has no authentication, execution sandboxing, permission isolation, or production-grade execution hardening.
 - No frontend, authentication layer, multi-agent system, or production testing platform is claimed here.
 - Local KB search is deterministic file retrieval. The optional `langchain_local` backend is a LangChain Core local `Document` / `BaseRetriever` adapter, not a production vector database, embedding pipeline, or LangChain vector store.
 - Test-plan drafting is deterministic by default. Optional LLM-assisted drafting returns reviewable JSON only; it does not execute tests, choose selectors, or control the browser.
